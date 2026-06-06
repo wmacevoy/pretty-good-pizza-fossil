@@ -20,10 +20,17 @@ These were made deliberately in design conversation. Do not relitigate without r
 ## Phase plan
 
 1. **Phase 1 (current).** Stock Fossil + Tcl library + system `gpg`. Schemas, CLI subcommands, deterministic tally, federation/partition tests. No custom Fossil build.
-2. **Phase 2.** Custom Fossil build with `fossil ppp …` subcommands and full Tcl linked in.
-3. **Phase 3.** SQLCipher swap-in, only after the threat model for at-rest encryption is concrete.
+2. **Phase 2.** Custom Fossil binary, built by `build/build-fossil.sh`, with:
+   - Full Tcl 8.6 linked in (`--with-tcl`).
+   - SQLCipher swapped in for the bundled SQLite, via the sibling `../sqlcipher-libressl` project.
+   - LibreSSL providing both `libcrypto` (for SQLCipher) and `libssl` (for TLS sync).
+   - `fossil ppp …` subcommands compiled in (the CLI from phase 1 moves into the binary).
+
+Phase 2 collapses what was originally planned as a separate "custom Fossil" phase and a later "SQLCipher swap-in" phase. The heavy lift — LibreSSL ↔ SQLCipher integration — is solved by `sqlcipher-libressl`, so adding SQLCipher to the Fossil build is a few extra compile flags rather than a separate phase. See `build/README.md` for the rationale and the open TODOs.
 
 Phase 1 must work against an unmodified `fossil` binary so the algorithm and the federation model can be verified before betting on the custom-binary distribution story.
+
+**Threat model for at-rest encryption** (`docs/threat-model.md`, not yet written) is a prerequisite for phase 2: the SQLCipher `PRAGMA key` source — env var, interactive prompt, keyfile, OS keychain — is a UX decision that belongs in that doc, not buried in code.
 
 ## Layout
 
