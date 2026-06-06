@@ -8,11 +8,14 @@ The CLI (`bin/ppv`) is NOT linked into this binary. It runs in standalone QuickJ
 
 **Skeleton.** `build-fossil.sh` validates inputs, sources pinned upstream versions from `versions.env`, and lays out the build sequence. Fossil is pinned to **version-2.28** (commit `1573b8e66e402f7d3f5cf70d37036a4ba2966edd` on the GitHub mirror, Fossil-native hash prefix `52445a27`, released 2026-03-11). Source-layout and configure-flag assumptions in the script are verified against this revision.
 
-One step remains before the recipe is reproducible:
+**`fossil-db-key.patch` is written** (see `patches/README.md`). It applies cleanly to the pinned Fossil 2.28 source tree; the syntax-check passes on the patched region (full compile awaits LibreSSL install).
 
-1. **`PRAGMA key` wiring** — write `build/patches/fossil-db-key.patch` against Fossil's `src/db.c`, replacing the body of `db_maybe_obtain_encryption_key()` (Fossil's existing SEE policy hook) with our mode-aware logic. Full design in `docs/threat-model.md` (Pinned).
+What still gates a reproducible end-to-end build:
 
-LibreSSL and sqlcipher-libressl versions still need pinning in `versions.env`. Those are environment inputs to the script; pin them when ready.
+1. **Pin LibreSSL version** in `versions.env` (suggested: 4.2.1, matching sqlcipher-libressl CI).
+2. **Pin sqlcipher-libressl commit** in `versions.env`.
+3. **Install** LibreSSL and have the sqlcipher-libressl checkout ready.
+4. **Run** `build-fossil.sh` against those inputs.
 
 ## Dependencies
 

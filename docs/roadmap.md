@@ -21,30 +21,27 @@ This document captures the ordered sequence of work to reach each milestone. The
 - `lib/tally.js`: `run` implemented for all three modes (A, B, C), including threshold filter, SHAKE128 stream, BigInt weight computation, and mode-C tie-breaking. Cross-implementation regression fixtures frozen in `test/fixtures/sampling/{mode-c-boundary-tie,mode-a-replacement,mode-b-no-replacement}/`.
 - `bin/ppv tally [dir]` writes `result.json`; `bin/ppv verify [dir]` re-runs and diffs. Round-trip end-to-end tested.
 - `build/build-fossil.sh` incorporates the SEE-reuse approach (`--with-see=1`, `src/sqlite3-see.c`); drops `--with-tcl` since the CLI is now standalone.
+- `build/patches/fossil-db-key.patch` written: mode-aware key source (`FOSSIL_PPV_KEY` env var > gpg-decrypt `keys/master.key.asc` > stock prompt under `FOSSIL_PPV_STOCK_PROMPT=1`). Verified to apply cleanly against pinned Fossil 2.28; full compile awaits LibreSSL install.
 - Protocol abbreviation renamed `ppp` → `ppv` (avoids PGP collision); schema version is `"ppv/1"`.
 
 **Stubbed or missing:**
 - `bin/ppv init` and `bin/ppv vote` — print "not implemented (phase 1 stub)" and exit nonzero. Both need Fossil integration (commit the genesis manifest, clearsign a ballot file).
-- `build/patches/fossil-db-key.patch` — not written. Design pinned in `docs/threat-model.md`.
 - `versions.env` — LibreSSL, sqlcipher-libressl, and QuickJS versions still unpinned.
 
 ## Milestone 1: First custom Fossil binary
 
 Goal: produce a `fossil-ppv` binary that links LibreSSL libssl + libcrypto + SQLCipher amalgamation, with the mode-aware `PRAGMA key` wiring in place. Verifying by `./fossil-ppv version` and opening a stock (mode-1, unencrypted) repo successfully.
 
-Order matters — each step depends on the ones above:
+**Patch written and verified to apply.** `build/patches/fossil-db-key.patch` (~136 lines) adds `ppv_decrypt_master_key()` as a static helper near Fossil's existing SEE scaffolding and replaces the body of `db_maybe_obtain_encryption_key`'s `else` branch with the mode-aware key source. Applies cleanly against the pinned Fossil 2.28 source; syntax-check passes on the patched region.
+
+What still gates running the build:
 
 1. **Pin LibreSSL version** in `build/versions.env`. Recommended: 4.2.1 (matches sqlcipher-libressl CI).
 2. **Pin sqlcipher-libressl commit** in `build/versions.env`. Recommended: latest tagged release, or current `main` if no release tag.
 3. **Pin QuickJS version** in `build/versions.env`. Used to run `bin/ppv`; not linked into Fossil.
-4. **Write `build/patches/fossil-db-key.patch`**. Target: `db_maybe_obtain_encryption_key` in `src/db.c` (Fossil's existing SEE policy hook). Replace the prompt-or-cache body with:
-   - Check `FOSSIL_PPV_KEY` env var first (escape hatch for CI/testing).
-   - Otherwise shell out to `gpg --decrypt --output - <repo-dir>/keys/master.key.asc`.
-   - Populate `*pKey`, let the existing caching machinery handle reuse, zeroize the local buffer.
-   - Add a tiny `ppv_gpg_decrypt_master_key()` helper (either inline in `db.c` or in a new `src/ppv_keys.c` listed in `main.mk`).
-5. **Install** LibreSSL and sqlcipher-libressl locally at the pinned versions.
-6. **Run** `LIBRESSL_PREFIX=... SQLCIPHER_DIR=... FOSSIL_SRC=... ./build/build-fossil.sh`.
-7. **Verify**: `./build/dist/fossil-ppv version` reports the expected build flags; opening a stock (mode-1) repo works.
+4. **Install** LibreSSL and sqlcipher-libressl locally at the pinned versions.
+5. **Run** `LIBRESSL_PREFIX=... SQLCIPHER_DIR=... FOSSIL_SRC=... ./build/build-fossil.sh`.
+6. **Verify**: `./build/dist/fossil-ppv version` reports the expected build flags; opening a stock (mode-1) repo works.
 
 ## Milestone 2: First working tally — DONE
 

@@ -93,18 +93,11 @@ FOSSIL_SQLITE_H="$FOSSIL_SRC/src/sqlite3.h"
 cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SQLITE_C"
 cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SQLITE_H"
 
-# TODO(db-key-wiring): replace the body of db_maybe_obtain_encryption_key() in
-# src/db.c (Fossil's existing SEE policy hook) with our mode-aware logic:
-#   - rule.privacy == "public":  filename does not end in .efossil; existing
-#                                code already returns without setting a key.
-#   - rule.privacy == "group":   filename ends in .efossil; shell out to
-#                                `gpg --decrypt --output - <repo-dir>/keys/master.key.asc`
-#                                (no --batch; gpg-agent handles prompts), recover K,
-#                                populate *pKey. Existing db_maybe_set_encryption_key
-#                                already does PRAGMA key after this returns.
-#   - rule.privacy == "individual": error (deferred to a future phase).
-# Also honor FOSSIL_PPV_KEY env var as a mode-2 escape hatch (testing only).
-# Full design is in docs/threat-model.md (Pinned). Patch is small (~50-70 lines).
+# patches/fossil-db-key.patch wires the mode-aware key source into Fossil's
+# existing SEE scaffolding (db_maybe_obtain_encryption_key in src/db.c):
+#   FOSSIL_PPV_KEY env var > gpg-decrypt keys/master.key.asc > stock prompt
+#   only if FOSSIL_PPV_STOCK_PROMPT=1.
+# See patches/README.md and docs/threat-model.md for the design.
 if [ -f "$SCRIPT_DIR/patches/fossil-db-key.patch" ]; then
     echo "  applying fossil-db-key.patch"
     ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-db-key.patch" )
