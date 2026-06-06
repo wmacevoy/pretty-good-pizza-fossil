@@ -1,6 +1,8 @@
 # Custom Fossil build
 
-This directory builds a Fossil binary with SQLCipher (encrypted storage), LibreSSL (TLS + libcrypto for SQLCipher), and full Tcl 8.6 linked in. The result is a single statically-linked executable with no runtime dependencies beyond libc.
+This directory builds a Fossil binary with SQLCipher (encrypted storage) and LibreSSL (TLS + libcrypto for SQLCipher). The result is a single statically-linkable executable.
+
+The CLI (`bin/ppv`) is NOT linked into this binary. It runs in standalone QuickJS alongside the binary. A verifier needs: this custom Fossil (only for mode-2 encrypted repos; stock Fossil works for mode-1), plus `qjs`, `openssl`, and `gpg` on PATH.
 
 ## Status
 
@@ -8,25 +10,26 @@ This directory builds a Fossil binary with SQLCipher (encrypted storage), LibreS
 
 One step remains before the recipe is reproducible:
 
-1. **`PRAGMA key` wiring** — write `build/patches/fossil-db-key.patch` against Fossil's `src/db.c` to be **mode-aware** per the manifest's `rule.privacy`: skip `PRAGMA key` for `"public"`, shell out to `gpg --decrypt --output - keys/master.key.asc` and pass `PRAGMA key = "x'<hex>'";` for `"group"`, reject `"individual"` with a clear error. Full design in `docs/threat-model.md` (Pinned).
+1. **`PRAGMA key` wiring** — write `build/patches/fossil-db-key.patch` against Fossil's `src/db.c`, replacing the body of `db_maybe_obtain_encryption_key()` (Fossil's existing SEE policy hook) with our mode-aware logic. Full design in `docs/threat-model.md` (Pinned).
 
-LibreSSL, sqlcipher-libressl, and Tcl versions still need pinning in `versions.env`. Those are environment inputs to the script; pin them when ready.
-
-## Worth investigating before writing the patch
-
-Fossil 2.28 already exposes `--with-see=1` for the SQLite Encryption Extension (SEE — drh's commercial encryption add-on). That implies the source already has scaffolding for `PRAGMA key` / `PRAGMA rekey` and surrounding key-source plumbing along the SEE code paths. SQLCipher uses the same `PRAGMA key` API by design, so the SEE scaffolding may be largely reusable: the mode-aware patch could become an insertion into existing key-source code rather than a from-scratch wiring of `db_open`. Investigate the SEE code paths (`grep -r "PRAGMA key" src/`, `grep -r "with-see" src/`) before authoring the patch — if reusable, the patch shrinks substantially.
+LibreSSL and sqlcipher-libressl versions still need pinning in `versions.env`. Those are environment inputs to the script; pin them when ready.
 
 ## Dependencies
 
 | Dep | Source | Trust |
 |---|---|---|
 | LibreSSL (libcrypto + libssl) | upstream `libressl.org` | well-vetted; OpenBSD foundation |
-| SQLCipher amalgamation | sibling `sqlcipher-libressl` | your fork; reviewable |
-| Tcl 8.6 (static) | upstream `tcl.tk` | long-lived, slow-moving |
-| zlib | system (or upstream static) | ubiquitous |
+| SQLCipher amalgamation | sibling `sqlcipher-libressl` | Warren's fork; CI-validated on 5 platforms |
 | Fossil source | upstream `fossil-scm.org` | small C codebase, auditable |
+| zlib | system (or upstream static) | ubiquitous |
 
-All dependencies are static-linkable. The final binary has no runtime dependency outside libc.
+For running the CLI (separate from this build):
+
+| Dep | Notes |
+|---|---|
+| QuickJS (`qjs`) | upstream `bellard/quickjs`; pin a version in `versions.env` once the build machine's qjs is verified |
+| `openssl` | for SHA3-256 + SHAKE128 via shell-out |
+| `gpg` | for clearsign verification + mode-2 master-key decryption |
 
 ## Inputs (env)
 
@@ -34,30 +37,26 @@ All dependencies are static-linkable. The final binary has no runtime dependency
 |---|---|---|
 | `LIBRESSL_PREFIX` | yes | LibreSSL install prefix (contains `include/`, `lib/libcrypto.a`, `lib/libssl.a`) |
 | `SQLCIPHER_DIR` | yes | Path to a `sqlcipher-libressl` checkout |
-| `TCL_PREFIX` | yes | Tcl 8.6 install prefix (contains `include/tcl.h`, `lib/libtcl8.6.a`) |
 | `FOSSIL_SRC` | yes | Path to a Fossil source checkout |
 | `FOSSIL_REF` | no | Expected git ref of `FOSSIL_SRC`; verified if set |
 | `OUTPUT_DIR` | no | Default `build/dist` |
 | `ZLIB_PREFIX` | no | Static zlib prefix (default: system zlib) |
 | `JOBS` | no | `make -j` parallelism (default: detected) |
 
+## Why the CLI is not linked into Fossil
+
+Originally the plan was to embed the CLI (then in Tcl) inside Fossil via `--with-tcl`. After switching the CLI to QuickJS we re-evaluated and concluded the cleaner story is to keep them separate:
+
+- **Verifier gets a stronger story.** Anyone with stock Fossil + `qjs` + `openssl` can verify a mode-1 election. Only mode-2 needs the custom Fossil binary at all.
+- **Fossil's own configure has no `--with-quickjs`.** Embedding would mean inventing our own integration patches, adding work without proportional gain.
+- **Standalone is simpler to audit.** Two small binaries with well-defined responsibilities beats one big binary that does both.
+
+Fossil's built-in TH1 (Tcl-flavored templating, baked in) remains available for any future web-UI hook work. We just do not link full Tcl on top.
+
 ## Pinning the recipe
 
-When the three TODOs are resolved, this directory should also contain:
+When the open TODO is resolved, this directory should also contain:
 
-- `versions.env` — pinned versions/commits for LibreSSL, sqlcipher-libressl, Tcl, and Fossil. Sourced by the script so a reproducible build is one `source build/versions.env && ./build/build-fossil.sh` away.
 - `patches/fossil-db-key.patch` — the small Fossil-side patch wiring `PRAGMA key`.
-- `patches/fossil-configure.patch` — only if Fossil's autosetup needs surgery to accept the SQLCipher amalgamation in place of vanilla SQLite. May not be needed.
 
-Cross-implementation reproducibility (matching the `sqlcipher-libressl` model) implies a CI matrix building this on the same 5 platforms. That's phase-2-of-phase-2; do it after the local build works.
-
-## Why this collapses phase 2 and phase 3
-
-The original phase plan (in `CLAUDE.md`) separated:
-
-- Phase 2: custom Fossil with full Tcl linked in.
-- Phase 3: SQLCipher swap-in.
-
-In practice the heavy lift is the LibreSSL ↔ SQLCipher integration, which `sqlcipher-libressl` has already solved. Once you're building a custom Fossil at all, adding the SQLCipher amalgamation in step 2 of the recipe is a few extra compile flags, not a separate phase. Doing both at once forfeits no optionality and saves a second build pipeline.
-
-The threat-model document for at-rest encryption (key source, lifecycle, recovery) is still required before phase-2-combined ships — but it's a doc, not a separate build effort.
+Cross-platform reproducibility (matching the `sqlcipher-libressl` model) implies a CI matrix building this on the same 5 platforms. That's phase-2-of-phase-2; do it after the local build works.

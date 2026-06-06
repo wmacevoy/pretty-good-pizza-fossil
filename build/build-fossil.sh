@@ -3,18 +3,21 @@ set -euo pipefail
 
 # Build a custom Fossil binary with:
 #   - SQLCipher (encrypted SQLite) via the sibling sqlcipher-libressl project
-#   - LibreSSL for libcrypto (storage encryption) and libssl (TLS for sync)
-#   - Full Tcl 8.6 linked in (--with-tcl)
+#   - LibreSSL for libcrypto (SQLCipher storage encryption) and libssl (TLS for sync)
+#   - The mode-aware PRAGMA key patch, wired into Fossil's existing SEE scaffolding
+#
+# The CLI (bin/ppv) is not linked into Fossil. It runs in standalone QuickJS
+# alongside this binary. A verifier needs: the custom fossil (for mode-2 SQLCipher
+# repos), qjs, openssl, gpg.
 #
 # Modeled on ../sqlcipher-libressl/build-sqlcipher-libressl.sh.
-# Read build/README.md before running. The TODO blocks below mark steps
-# that need to be pinned against a specific Fossil revision; the script
-# is a skeleton, not yet a reproducible recipe.
+# Read build/README.md before running. The TODO blocks below mark steps that
+# need to be pinned against the chosen Fossil revision; the script is a
+# skeleton, not yet a reproducible recipe.
 #
 # Required env:
 #   LIBRESSL_PREFIX   install prefix containing include/ and lib/{libcrypto.a,libssl.a}
 #   SQLCIPHER_DIR     path to a sqlcipher-libressl checkout (sibling project)
-#   TCL_PREFIX        install prefix containing include/tcl.h and lib/libtcl8.6.a
 #   FOSSIL_SRC        path to a Fossil source checkout (pinned revision; see FOSSIL_REF)
 #
 # Optional env:
@@ -35,7 +38,6 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/dist}"
 # ── Required env ────────────────────────────────────────────────
 : "${LIBRESSL_PREFIX:?Set LIBRESSL_PREFIX to your LibreSSL install prefix}"
 : "${SQLCIPHER_DIR:?Set SQLCIPHER_DIR to a sqlcipher-libressl checkout}"
-: "${TCL_PREFIX:?Set TCL_PREFIX to your Tcl 8.6 install prefix}"
 : "${FOSSIL_SRC:?Set FOSSIL_SRC to a Fossil source checkout (at FOSSIL_REF=$FOSSIL_REF)}"
 
 # Parallelism
@@ -55,10 +57,8 @@ echo "==> Verifying inputs"
 [ -f "$LIBRESSL_PREFIX/lib/libssl.a" ]           || { echo "ERR: $LIBRESSL_PREFIX/lib/libssl.a missing";    exit 1; }
 [ -f "$LIBRESSL_PREFIX/include/openssl/crypto.h" ] || { echo "ERR: LibreSSL headers missing under $LIBRESSL_PREFIX/include"; exit 1; }
 [ -d "$SQLCIPHER_DIR" ]                          || { echo "ERR: SQLCIPHER_DIR not a directory: $SQLCIPHER_DIR"; exit 1; }
-[ -f "$TCL_PREFIX/include/tcl.h" ]               || { echo "ERR: tcl.h missing under $TCL_PREFIX/include"; exit 1; }
-ls "$TCL_PREFIX/lib/libtcl8.6.a" "$TCL_PREFIX/lib/libtcl.a" >/dev/null 2>&1 \
-                                                 || { echo "ERR: no static Tcl library found under $TCL_PREFIX/lib"; exit 1; }
 [ -d "$FOSSIL_SRC" ]                             || { echo "ERR: FOSSIL_SRC not a directory: $FOSSIL_SRC"; exit 1; }
+command -v qjs >/dev/null 2>&1                   || { echo "WARN: qjs (QuickJS) not on PATH; not required to build Fossil but required to run bin/ppv against the result"; }
 
 if [ -n "${FOSSIL_REF:-}" ]; then
     actual="$(git -C "$FOSSIL_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -86,56 +86,49 @@ fi
 
 # ── Step 2: Swap SQLCipher into Fossil source tree ──────────────
 echo "==> Patching Fossil source"
-#
-# TODO(fossil-source-layout): verify the exact path Fossil expects for its
-# bundled SQLite amalgamation against the pinned FOSSIL_REF. As of recent
-# Fossil trunks, it lives at src/sqlite3.c, but this has shifted historically.
-# Cross-check by inspecting "$FOSSIL_SRC/src/" before relying on this.
-#
-FOSSIL_SQLITE_C="$FOSSIL_SRC/src/sqlite3.c"
+# --with-see=1 sets SQLITE3_ORIGIN=1, which makes Fossil's build look for
+# src/sqlite3-see.c (not src/sqlite3.c). Drop the SQLCipher amalgamation there.
+FOSSIL_SQLITE_C="$FOSSIL_SRC/src/sqlite3-see.c"
 FOSSIL_SQLITE_H="$FOSSIL_SRC/src/sqlite3.h"
 cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SQLITE_C"
 cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SQLITE_H"
 
-#
-# TODO(db-key-wiring): Fossil's db_open path (src/db.c) needs a small patch
-# to be MODE-AWARE per the manifest's rule.privacy field:
-#   - rule.privacy == "public":  skip PRAGMA key entirely (stock SQLite behavior)
-#   - rule.privacy == "group":   shell out to
-#                                `gpg --decrypt --output - keys/master.key.asc`
+# TODO(db-key-wiring): replace the body of db_maybe_obtain_encryption_key() in
+# src/db.c (Fossil's existing SEE policy hook) with our mode-aware logic:
+#   - rule.privacy == "public":  filename does not end in .efossil; existing
+#                                code already returns without setting a key.
+#   - rule.privacy == "group":   filename ends in .efossil; shell out to
+#                                `gpg --decrypt --output - <repo-dir>/keys/master.key.asc`
 #                                (no --batch; gpg-agent handles prompts), recover K,
-#                                then PRAGMA key = "x'<K hex>'"; zeroize K.
-#   - rule.privacy == "individual": error (deferred to a future phase)
-# Also honor FOSSIL_PPP_KEY env var as a mode-2 escape hatch (testing only).
-# Full design is in docs/threat-model.md (now Pinned).
-#
+#                                populate *pKey. Existing db_maybe_set_encryption_key
+#                                already does PRAGMA key after this returns.
+#   - rule.privacy == "individual": error (deferred to a future phase).
+# Also honor FOSSIL_PPV_KEY env var as a mode-2 escape hatch (testing only).
+# Full design is in docs/threat-model.md (Pinned). Patch is small (~50-70 lines).
 if [ -f "$SCRIPT_DIR/patches/fossil-db-key.patch" ]; then
     echo "  applying fossil-db-key.patch"
     ( cd "$FOSSIL_SRC" && patch -p1 < "$SCRIPT_DIR/patches/fossil-db-key.patch" )
 else
-    echo "  WARN: patches/fossil-db-key.patch absent — built binary will not call PRAGMA key"
+    echo "  WARN: patches/fossil-db-key.patch absent — built binary will use Fossil's stock SEE prompt-for-passphrase behavior, not the mode-aware ppv flow"
 fi
 
 # ── Step 3: Configure Fossil ────────────────────────────────────
 echo "==> Configuring Fossil"
 # Configure flags verified against Fossil $FOSSIL_VERSION auto.def.
-#   --with-openssl=<prefix>    same flag for OpenSSL or LibreSSL; Fossil
-#                              probes for libcrypto/libssl symbols at
-#                              configure time
-#   --with-tcl=<prefix>        Tcl install prefix; combined with --with-tcl-stubs
-#                              gives the linked-Tcl interpreter
+#   --with-openssl=<prefix>    same flag for OpenSSL or LibreSSL; Fossil probes
+#                              for libcrypto/libssl symbols at configure time
+#   --with-see=1               enables Fossil's SEE scaffolding (the hook point
+#                              for our patch); defines USE_SEE and SQLITE_HAS_CODEC
 #   --json                     enables Fossil's JSON HTTP API endpoints
 #   --internal-sqlite=1        explicit; we substitute the bundled amalgamation
-#                              rather than linking an external SQLite
 (
     cd "$FOSSIL_SRC"
     ./configure \
         --with-openssl="$LIBRESSL_PREFIX" \
-        --with-tcl="$TCL_PREFIX" \
-        --with-tcl-stubs \
+        --with-see=1 \
         --json \
         --internal-sqlite=1 \
-        CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL -O2" \
+        CFLAGS="-DSQLCIPHER_CRYPTO_OPENSSL -O2" \
         LIBS="$LIBRESSL_PREFIX/lib/libssl.a $LIBRESSL_PREFIX/lib/libcrypto.a"
 )
 
@@ -145,15 +138,11 @@ make -C "$FOSSIL_SRC" -j"$JOBS"
 
 # ── Step 5: Install ─────────────────────────────────────────────
 echo "==> Installing to $OUTPUT_DIR"
-cp "$FOSSIL_SRC/fossil" "$OUTPUT_DIR/fossil-ppp"
-ls -lh "$OUTPUT_DIR/fossil-ppp"
+cp "$FOSSIL_SRC/fossil" "$OUTPUT_DIR/fossil-ppv"
+ls -lh "$OUTPUT_DIR/fossil-ppv"
 
 # ── Step 6: Smoke test ──────────────────────────────────────────
 echo "==> Smoke tests"
-"$OUTPUT_DIR/fossil-ppp" version
-# TODO(smoke-test-tcl): pick a real Tcl-integration smoke test once the
-# command set is known. `fossil test-th-eval` exercises TH1, not full Tcl.
-# Full Tcl in Fossil is reached via the (server-side) Tcl interpreter,
-# which we'll exercise differently.
+"$OUTPUT_DIR/fossil-ppv" version
 
 echo "==> Build complete"

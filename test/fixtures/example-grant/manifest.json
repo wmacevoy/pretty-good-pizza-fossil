@@ -1,5 +1,5 @@
 {
-  "version": "ppp/1",
+  "version": "ppv/1",
   "election_id": "example-grant",
   "title": "Example grant election",
   "description": "Fixture used by tests; not a real election.",

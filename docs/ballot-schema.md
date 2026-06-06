@@ -6,7 +6,7 @@ A ballot is a small JSON file committed to `ballots/<voter-fingerprint>.json`. F
 
 | Field | Type | Description |
 |---|---|---|
-| `version` | string | `"ppp/1"`. |
+| `version` | string | `"ppv/1"`. |
 | `election_id` | string | Matches the manifest's `election_id`. |
 | `manifest_hash` | string | SHA3-256 of the election manifest. Anchors the ballot to a specific election. |
 | `voter_fingerprint` | string | Uppercase hex of the voter's PGP fingerprint. Must match the `ballots/<fingerprint>.json` filename and the clearsign signer. |
@@ -22,13 +22,13 @@ A ballot is valid iff all of the following hold:
 4. `voting_opens ≤ check-in timestamp ≤ voting_closes`.
 5. Every entry in `approvals` is a real `options[].id` in the manifest.
 
-Rules 1–5 are per-ballot. **Equivocation** — a voter committing two contradictory ballots with the same `voter_fingerprint` but different `approvals` — is detected at tally time, not per ballot. The handling is documented in `lib/tally.tcl` and must be deterministic (suggested phase-1 default: reject the voter's ballots entirely and surface for convener review).
+Rules 1–5 are per-ballot. **Equivocation** — a voter committing two contradictory ballots with the same `voter_fingerprint` but different `approvals` — is detected at tally time, not per ballot. The handling is documented in `lib/tally.js` and must be deterministic (suggested phase-1 default: reject the voter's ballots entirely and surface for convener review).
 
 ## Example
 
 ```json
 {
-  "version": "ppp/1",
+  "version": "ppv/1",
   "election_id": "q3-grants-2026",
   "manifest_hash": "abc123def456...",
   "voter_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

@@ -4,11 +4,11 @@ Reference implementation of the [Pretty Good Pizza voting mechanism](../pretty-g
 
 ## Status
 
-**Phase 1 (scaffolding).** Schemas defined, Tcl CLI skeleton in place. No working tally yet. See `CLAUDE.md` for the phased build plan and the architectural decisions already made.
+**Phase 1.** Schemas pinned, QuickJS CLI skeleton in place, canonical-JSON + SHA3-256 implemented and regression-tested. Tally algorithm not yet implemented. See `CLAUDE.md` for the architectural decisions and `docs/roadmap.md` for the milestone-by-milestone state.
 
 ## Architecture in one sentence
 
-Each election lives in a Fossil repository: the genesis commit is a signed election manifest, ballots are clearsigned commits at `ballots/<voter-fingerprint>.json`, and a Tcl CLI (`bin/ppp`) reads the synced repo state to compute a deterministic, independently verifiable result.
+Each election lives in a Fossil repository: the genesis commit is a signed election manifest, ballots are clearsigned commits at `ballots/<voter-fingerprint>.json`, and a QuickJS CLI (`bin/ppv`) reads the synced repo state to compute a deterministic, independently verifiable result.
 
 ## Quick reference
 
@@ -19,16 +19,17 @@ Each election lives in a Fossil repository: the genesis commit is a signed elect
 | Ballot file format | [`docs/ballot-schema.md`](docs/ballot-schema.md) |
 | Canonical JSON (for `manifest_hash`) | [`docs/canonical-json.md`](docs/canonical-json.md) |
 | Deterministic sampling | [`docs/deterministic-sampling.md`](docs/deterministic-sampling.md) |
-| CLI entry point | [`bin/ppp`](bin/ppp) |
-| Tests | [`test/run-tests.tcl`](test/run-tests.tcl) |
+| CLI entry point | [`bin/ppv`](bin/ppv) |
+| Tests | [`test/run-tests.js`](test/run-tests.js) |
 
 ## Dependencies (target)
 
-- Fossil (stock, with `clearsign` enabled).
-- Tcl 8.6+ with `tcllib` (for `json`, `sha3`, time parsing).
-- `gpg` (system install; used by Fossil's clearsign and by the CLI for signature verification).
+- Fossil (stock for mode 1; custom build with SQLCipher for mode 2 — see `build/`).
+- `qjs` (QuickJS standalone interpreter; runs `bin/ppv`).
+- `openssl` (system install; SHA3-256 and SHAKE128 via shell-out).
+- `gpg` (system install; used by Fossil's clearsign and by mode-2 master-key decryption).
 
-No Python, Node, or Rust in the voter's verification path.
+The CLI is NOT linked into Fossil; it runs in standalone `qjs` alongside the binary. A mode-1 (public) election can be verified with stock Fossil + `qjs` + `openssl`; only mode-2 (group, encrypted-at-rest) requires the custom Fossil build. No Python, no Node, no Rust toolchain in the voter's verification path.
 
 ## License
 

@@ -30,7 +30,7 @@ The trust mode is determined by `rule.privacy` in the manifest and is fixed for 
 
 To change a privacy posture, start a new election with a new manifest. Optionally reuse the roster and options by copying them into the new manifest at drafting time — that is just JSON authoring, not a protocol operation. The new election has a different `manifest_hash` and is, by design, a different election.
 
-Group → public declassification is a documented one-time manual action: a roster member decrypts the repo locally and republishes the plaintext content. It is not a `fossil ppp` subcommand and should not become one.
+Group → public declassification is a documented one-time manual action: a roster member decrypts the repo locally and republishes the plaintext content. It is not a `fossil ppv` subcommand and should not become one.
 
 ## What lives in the local repo
 
@@ -84,7 +84,7 @@ Manifest sets `rule.privacy = "group"`. The repo is encrypted with a single SQLC
 
 ### Mechanism
 
-1. **At `fossil ppp init`** (convener side): generate a cryptographically random 256-bit key `K` (source pinned below). Encrypt `K` to every roster member's gpg public key in one operation:
+1. **At `fossil ppv init`** (convener side): generate a cryptographically random 256-bit key `K` (source pinned below). Encrypt `K` to every roster member's gpg public key in one operation:
 
    ```
    gpg --encrypt --armor \
@@ -105,7 +105,7 @@ Manifest sets `rule.privacy = "group"`. The repo is encrypted with a single SQLC
 
 The convener's gpg key signs the genesis manifest (via clearsign) and serves as one of the recipients in the multi-recipient encrypt of `K`. The same key must be used for both, and it must be one of the manifest's roster fingerprints (per the convener-on-roster invariant).
 
-On `fossil ppp init <manifest.json>`, the tool:
+On `fossil ppv init <manifest.json>`, the tool:
 
 1. Walks the manifest's roster fingerprints and identifies which entries have a usable secret key in the convener's keyring (not expired, not revoked, secret-key part available or smart-card connected).
 2. If **exactly one** match, presents a confirmation prompt:
@@ -161,8 +161,8 @@ Out of v1 scope. Sketch for future reference: each voter has their own key, no k
 1. Read `rule.privacy` from the manifest at `db_open` time. The manifest is the genesis artifact and is always accessible via Fossil's blob store before any encrypted DB access.
 2. If `rule.privacy == "public"`, skip `PRAGMA key` entirely. Behaves as stock Fossil + SQLite.
 3. If `rule.privacy == "group"`, locate `keys/master.key.asc` (committed to the repo) and shell out to `gpg --decrypt --output - keys/master.key.asc` to recover `K`. No `--batch` flag — that lets `gpg-agent` broker interactive passphrase entry and smart-card prompts when needed. Read decrypted bytes from gpg's stdout; check exit code; issue `PRAGMA key = "x'<K hex>'";` and zeroize the in-memory copy of `K`.
-4. If `rule.privacy == "individual"`, error out with "individual mode not supported in this build of fossil-ppp; see docs/threat-model.md mode 3."
-5. Honor the `FOSSIL_PPP_KEY` env var as a mode-2 escape hatch: if set, use its value directly as `K` and skip the gpg-decrypt step. Documented as testing/CI-only; the README must flag that this defeats the at-rest protection while the variable is in the process environment.
+4. If `rule.privacy == "individual"`, error out with "individual mode not supported in this build of fossil-ppv; see docs/threat-model.md mode 3."
+5. Honor the `FOSSIL_PPV_KEY` env var as a mode-2 escape hatch: if set, use its value directly as `K` and skip the gpg-decrypt step. Documented as testing/CI-only; the README must flag that this defeats the at-rest protection while the variable is in the process environment.
 
 The patch is small (~50-80 lines once gpg-shellout error handling is included). The trickier parts are robustly invoking `gpg-agent` (so the user is not re-prompted on every operation) and handling the not-on-roster case in step 1 of the first-open UX.
 

@@ -1,5 +1,5 @@
 {
-  "version": "ppp/1",
+  "version": "ppv/1",
   "election_id": "example-grant",
   "manifest_hash": "REPLACE-WITH-COMPUTED-SHA3-256-OF-MANIFEST",
   "voter_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

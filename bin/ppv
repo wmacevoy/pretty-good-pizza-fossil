@@ -1,0 +1,63 @@
+#!/usr/bin/env qjs
+// Pizza Party Voting CLI.
+// Subcommands: init, vote, tally, verify.
+
+import * as std from "std";
+
+function usage() {
+    std.err.puts("usage: ppv <subcommand> [args...]\n");
+    std.err.puts("\n");
+    std.err.puts("  init <manifest.json>       Create election in current Fossil repo\n");
+    std.err.puts("  vote <option-id> ...       Cast a ballot approving the listed options\n");
+    std.err.puts("  tally                      Compute the result from synced ballots\n");
+    std.err.puts("  verify                     Re-run tally, compare to committed result\n");
+    std.err.puts("  help                       Show this message\n");
+    std.exit(1);
+}
+
+function notImplemented(name, expected) {
+    std.err.puts(`ppv ${name}: not implemented (phase 1 stub)\n`);
+    std.err.puts(`  expected: ${expected}\n`);
+    std.exit(2);
+}
+
+const args = scriptArgs.slice(1);
+if (args.length === 0) usage();
+
+const sub = args[0];
+const rest = args.slice(1);
+
+switch (sub) {
+    case "init":
+        notImplemented(
+            "init",
+            "validate manifest.json, in mode group generate K and gpg-encrypt to roster as keys/master.key.asc, fossil ci as genesis"
+        );
+        break;
+    case "vote":
+        notImplemented(
+            "vote",
+            "build ballot JSON from approval ids, write ballots/<fp>.json, fossil ci (clearsign engaged)"
+        );
+        break;
+    case "tally":
+        notImplemented(
+            "tally",
+            "load manifest + all ballots, fetch/derive seed, run tally.run, write result.json, fossil ci"
+        );
+        break;
+    case "verify":
+        notImplemented(
+            "verify",
+            "re-run tally from public inputs, compare to committed result, exit 0 on match"
+        );
+        break;
+    case "help":
+    case "--help":
+    case "-h":
+        usage();
+        break;
+    default:
+        std.err.puts(`unknown subcommand: ${sub}\n`);
+        usage();
+}

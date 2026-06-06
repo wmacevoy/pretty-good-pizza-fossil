@@ -1,6 +1,6 @@
 # Deterministic sampling
 
-This spec defines the exact procedure for converting a seed into the sequence of draws used by the stochastic allocation modes. Determinism is required: `ppp verify` re-runs this procedure from public inputs and must produce the same output byte-for-byte.
+This spec defines the exact procedure for converting a seed into the sequence of draws used by the stochastic allocation modes. Determinism is required: `ppv verify` re-runs this procedure from public inputs and must produce the same output byte-for-byte.
 
 ## Inputs
 
@@ -16,12 +16,12 @@ The draw stream is **SHAKE128** seeded with a domain-separated context:
 stream = SHAKE128(domain || manifest_hash || seed)
 ```
 
-where `domain` is the ASCII bytes `ppp/draw/v1` (11 bytes, no terminator). `||` is byte concatenation.
+where `domain` is the ASCII bytes `ppv/draw/v1` (11 bytes, no terminator). `||` is byte concatenation.
 
 Rationale:
 
 - SHAKE128 is the SHA-3 extendable-output function. Since the protocol already requires SHA3-256 for `manifest_hash`, no new primitive is introduced.
-- The `domain` label binds the stream to this protocol version. A future `ppp/draw/v2` produces a different stream from the same seed.
+- The `domain` label binds the stream to this protocol version. A future `ppv/draw/v2` produces a different stream from the same seed.
 - `manifest_hash` binds the stream to this specific election. A leaked seed from one election cannot be reused to pre-compute draws for another.
 
 ## Weight construction
@@ -40,7 +40,7 @@ weight(option) = votes(option) × slices(option) × (∏_{j in candidates, j ≠
 
 — that is, multiply through by the product of every other candidate's price, clearing all denominators simultaneously. The result is an integer proportional to the true rational probability, with relative ratios preserved exactly.
 
-Every standard implementation (Tcl 8.5+, Python, Go, JavaScript with `BigInt`, Java with `BigInteger`) has arbitrary-precision integers; this places no special burden on verifiers.
+Every standard implementation (Python, Go, JavaScript with `BigInt`, Java with `BigInteger`) has arbitrary-precision integers; this places no special burden on verifiers.
 
 For phase-1 elections (≤ 50 options, prices bounded by the natural problem size) the integers stay reasonable. If a future use case violates this assumption, the spec should be revised to use an explicit rational-number representation rather than ad-hoc floating point.
 

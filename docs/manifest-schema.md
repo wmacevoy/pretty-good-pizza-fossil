@@ -10,7 +10,7 @@ A single JSON file at `manifest.json` in the repo root. Canonicalized (sorted ke
 
 | Field | Type | Description |
 |---|---|---|
-| `version` | string | Schema version. Currently `"ppp/1"`. |
+| `version` | string | Schema version. Currently `"ppv/1"`. |
 | `election_id` | string | Human-readable slug. Not a trust root, just a label. |
 | `title` | string | Display title. |
 | `description` | string | Free text. |
@@ -50,7 +50,7 @@ A voter who has the wrong `manifest_hash` is voting in a different election. The
 
 ```json
 {
-  "version": "ppp/1",
+  "version": "ppv/1",
   "election_id": "q3-grants-2026",
   "title": "Q3 2026 community grants",
   "description": "Selecting projects to fund from the Q3 pool.",

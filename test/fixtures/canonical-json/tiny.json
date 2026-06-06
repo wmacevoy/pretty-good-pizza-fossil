@@ -1,0 +1,8 @@
+{
+  "version": "ppv/1",
+  "election_id": "tiny",
+  "options": [
+    {"id": "x", "slices": 1, "price": 10},
+    {"id": "y", "slices": 1, "price": 20}
+  ]
+}

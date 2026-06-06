@@ -40,7 +40,7 @@ Logical input:
 
 ```json
 {
-  "version": "ppp/1",
+  "version": "ppv/1",
   "election_id": "tiny",
   "options": [
     {"id": "x", "slices": 1, "price": 10},
@@ -52,7 +52,7 @@ Logical input:
 Canonical bytes (one line; keys sorted; no whitespace; array order preserved):
 
 ```
-{"election_id":"tiny","options":[{"id":"x","price":10,"slices":1},{"id":"y","price":20,"slices":1}],"version":"ppp/1"}
+{"election_id":"tiny","options":[{"id":"x","price":10,"slices":1},{"id":"y","price":20,"slices":1}],"version":"ppv/1"}
 ```
 
 `manifest_hash` = `SHA3-256(<those bytes>)` rendered as uppercase hex.
