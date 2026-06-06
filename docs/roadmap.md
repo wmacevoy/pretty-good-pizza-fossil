@@ -16,17 +16,16 @@ This document captures the ordered sequence of work to reach each milestone. The
 - CLI runtime swapped from Tcl to QuickJS. `bin/ppv` is the entry; `lib/*.js` modules replace the Tcl equivalents. Rationale: JSON.parse + BigInt are native, dependency posture stays small (qjs + openssl + gpg), familiarity for the maintainer.
 - `lib/canonical-json.js` implements RFC 8785 JCS for the restricted subset; passing regression against `test/fixtures/canonical-json/tiny.{json,canonical,sha3-256}`.
 - `lib/sha3.js` and `lib/shell.js` shell out to `openssl` for SHA3-256 and SHAKE128.
-- `lib/manifest.js::canonicalHash`, `load`, and `validate` implemented (full schema check).
-- `lib/ballot.js::load` and `validate` implemented (rules 1–5).
+- `lib/manifest.js`: `load`, `validate` (full schema), `canonicalHash` implemented.
+- `lib/ballot.js`: `load`, `validate` (rules 1–5) implemented.
+- `lib/tally.js`: `run` implemented for all three modes (A, B, C), including threshold filter, SHAKE128 stream, BigInt weight computation, and mode-C tie-breaking. Cross-implementation regression fixtures frozen in `test/fixtures/sampling/{mode-c-boundary-tie,mode-a-replacement,mode-b-no-replacement}/`.
 - `build/build-fossil.sh` incorporates the SEE-reuse approach (`--with-see=1`, `src/sqlite3-see.c`); drops `--with-tcl` since the CLI is now standalone.
 - Protocol abbreviation renamed `ppp` → `ppv` (avoids PGP collision); schema version is `"ppv/1"`.
 
 **Stubbed or missing:**
-- `lib/tally.js::run` — still throws "not implemented." This is the next concrete unit of work.
-- `bin/ppv` subcommands (`init`, `vote`, `tally`, `verify`) — print "not implemented (phase 1 stub)" and exit nonzero.
+- `bin/ppv` subcommands (`init`, `vote`, `tally`, `verify`) — print "not implemented (phase 1 stub)" and exit nonzero. The algorithm is in place; the CLI just needs wiring.
 - `build/patches/fossil-db-key.patch` — not written. Design pinned in `docs/threat-model.md`.
 - `versions.env` — LibreSSL, sqlcipher-libressl, and QuickJS versions still unpinned.
-- Sampling fixtures: `test/fixtures/sampling/` does not exist; needs `(seed, manifest, ballots) → expected` for each of modes A, B, C.
 
 ## Milestone 1: First custom Fossil binary
 
@@ -50,14 +49,13 @@ Order matters — each step depends on the ones above:
 
 Goal: a JS tally implementation that runs against frozen fixtures and produces the expected output byte-for-byte. This validates the algorithm independent of Fossil.
 
-**Progress so far** (folded into "Done" above): canonical-JSON, SHA3-256, manifest+ballot load/validate, canonical-hash regression fixture passing.
+**Algorithm + fixtures: done.** `lib/tally.js::run` covers modes A/B/C; three frozen fixtures in `test/fixtures/sampling/` pass. Mode C hand-verified; modes A/B locked to current implementation output (any future reimplementation must reproduce these byte-for-byte).
 
 **Remaining:**
 
-1. **Implement** `lib/tally.js::run` per `docs/deterministic-sampling.md` (SHAKE128 stream domain-separated by `manifest_hash`, integer weights via product-of-other-prices in BigInt, per-draw byte budget for ≤ 2^-128 bias).
-2. **Freeze** `test/fixtures/sampling/<mode>.{seed,manifest,ballots,expected}` for modes A, B, C — frozen inputs and expected outputs. Cross-implementation regression source of truth.
-3. **Wire up** `bin/ppv tally` and `bin/ppv verify` against the fixtures.
-4. **Round-trip**: `bin/ppv tally <fixture-dir>` matches the committed expected output; `bin/ppv verify` against the same input exits 0.
+1. **Wire up `bin/ppv tally`**: load manifest + all ballots from a working directory (or a passed-in repo path), fetch the seed (NIST beacon URL or commit-reveal blob), call `tally.run`, write the result as `result.json`, return exit 0.
+2. **Wire up `bin/ppv verify`**: re-run the tally from public inputs and compare to the committed `result.json`. Exit 0 if match, nonzero if not.
+3. **Extend sampling fixtures** with edge cases as they come up (threshold modes other than `absolute`, tie_break = `random`/`alphabetic`, mode C with `M >= ranked.length`, etc.).
 
 Milestones 1 and 2 are independent and can run in parallel.
 

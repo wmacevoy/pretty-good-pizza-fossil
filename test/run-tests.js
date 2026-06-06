@@ -2,10 +2,33 @@
 // Test harness. Add real cases as implementation lands.
 
 import * as std from "std";
+import * as os from "os";
 import * as cj from "../lib/canonical-json.js";
 import * as manifest from "../lib/manifest.js";
 import * as ballot from "../lib/ballot.js";
 import * as tally from "../lib/tally.js";
+
+function hexToBytes(hex) {
+    hex = hex.trim();
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) {
+        out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return out;
+}
+
+function runTallyFixture(dir) {
+    const m = manifest.load(`${dir}/manifest.json`);
+    manifest.validate(m);
+    const mh = manifest.canonicalHash(m);
+    const [entries] = os.readdir(`${dir}/ballots`);
+    const ballots = entries
+        .filter((e) => e.endsWith(".json"))
+        .sort()
+        .map((e) => ballot.load(`${dir}/ballots/${e}`));
+    const seed = hexToBytes(readFile(`${dir}/seed.hex`));
+    return tally.run(m, ballots, seed, mh);
+}
 
 // Resolve repo root by walking up from this script's path.
 function repoRoot() {
@@ -101,9 +124,20 @@ test("ballot.load errors on missing file", () => {
     expectThrow(() => ballot.load("/nonexistent/ballot.json"), "missing file");
 });
 
-test("tally.run errors when called (stub)", () => {
-    expectThrow(() => tally.run({}, [], new Uint8Array(0)), "stub");
-});
+// ── tally: end-to-end against frozen sampling fixtures ─────────
+
+for (const name of ["mode-c-boundary-tie", "mode-a-replacement", "mode-b-no-replacement"]) {
+    test(`tally: ${name} matches expected.json`, () => {
+        const dir = `${REPO}/test/fixtures/sampling/${name}`;
+        const got = runTallyFixture(dir);
+        const expected = JSON.parse(readFile(`${dir}/expected.json`));
+        const gotS = JSON.stringify(got);
+        const expS = JSON.stringify(expected);
+        if (gotS !== expS) {
+            throw new Error(`mismatch:\n   got: ${gotS}\n   exp: ${expS}`);
+        }
+    });
+}
 
 std.out.puts(`\n${passed} passed, ${failed} failed\n`);
 std.exit(failed > 0 ? 1 : 0);

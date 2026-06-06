@@ -1,0 +1,35 @@
+{
+  "version": "ppv/1",
+  "election_id": "mode-b-no-replacement",
+  "title": "Mode B without replacement",
+  "description": "Fixture: x and y both with 2 votes; M=30; mode B. Same option not picked twice.",
+  "convener": {
+    "name": "Convener",
+    "pgp_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "voters": [
+    {"name": "Alice", "pgp_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"name": "Bob",   "pgp_fingerprint": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"},
+    {"name": "Carol", "pgp_fingerprint": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+  ],
+  "options": [
+    {"id": "x", "title": "Option X", "slices": 1, "price": 10},
+    {"id": "y", "title": "Option Y", "slices": 1, "price": 20}
+  ],
+  "rule": {
+    "threshold": {"type": "absolute", "value": 1},
+    "allocation": "B",
+    "budget": 30,
+    "tie_break": "random",
+    "privacy": "public"
+  },
+  "schedule": {
+    "voting_opens":  "2026-01-01T00:00:00Z",
+    "voting_closes": "2026-12-31T23:59:59Z"
+  },
+  "seed": {
+    "protocol": "nist-beacon",
+    "pulse_url":       "https://example/fixture",
+    "pulse_timestamp": "2026-01-01T00:00:00Z"
+  }
+}

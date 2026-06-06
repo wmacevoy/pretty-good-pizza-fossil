@@ -1,0 +1,36 @@
+{
+  "version": "ppv/1",
+  "election_id": "mode-c-boundary-tie",
+  "title": "Mode C with tie at boundary",
+  "description": "Fixture: a=3 votes, b=1, c=1; M=2 seats; tie_break=first → seat a then b.",
+  "convener": {
+    "name": "Convener",
+    "pgp_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "voters": [
+    {"name": "Alice", "pgp_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"name": "Bob",   "pgp_fingerprint": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"},
+    {"name": "Carol", "pgp_fingerprint": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+  ],
+  "options": [
+    {"id": "a", "title": "Option A", "slices": 1, "price": 1},
+    {"id": "b", "title": "Option B", "slices": 1, "price": 1},
+    {"id": "c", "title": "Option C", "slices": 1, "price": 1}
+  ],
+  "rule": {
+    "threshold": {"type": "absolute", "value": 1},
+    "allocation": "C",
+    "budget": 2,
+    "tie_break": "first",
+    "privacy": "public"
+  },
+  "schedule": {
+    "voting_opens":  "2026-01-01T00:00:00Z",
+    "voting_closes": "2026-12-31T23:59:59Z"
+  },
+  "seed": {
+    "protocol": "nist-beacon",
+    "pulse_url":       "https://example/fixture",
+    "pulse_timestamp": "2026-01-01T00:00:00Z"
+  }
+}

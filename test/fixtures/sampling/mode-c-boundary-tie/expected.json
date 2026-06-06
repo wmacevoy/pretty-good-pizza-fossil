@@ -1,0 +1,8 @@
+{
+  "mode": "C",
+  "selected": ["a", "b"],
+  "weights": {
+    "a": 3,
+    "b": 1
+  }
+}
