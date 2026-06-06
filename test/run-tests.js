@@ -196,6 +196,27 @@ test("bin/ppv verify rejects tampered result.json with nonzero exit", () => {
     }
 });
 
+test("bin/ppv init exits nonzero when manifest is missing", () => {
+    const devnull = os.open("/dev/null", os.O_WRONLY);
+    const rc = os.exec([`${REPO}/bin/ppv`, "init", "/nonexistent/manifest.json"], { stderr: devnull });
+    os.close(devnull);
+    if (rc === 0) throw new Error("expected nonzero exit from init on missing manifest");
+});
+
+test("bin/ppv vote exits nonzero when manifest.json is missing in cwd", () => {
+    const tmp = `/tmp/ppv-test-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    execOK(["mkdir", "-p", tmp]);
+    try {
+        const devnull = os.open("/dev/null", os.O_WRONLY);
+        // os.exec uses the parent cwd; pass cwd via shell wrapping.
+        const rc = os.exec(["sh", "-c", `cd "${tmp}" && exec "${REPO}/bin/ppv" vote x`], { stderr: devnull });
+        os.close(devnull);
+        if (rc === 0) throw new Error("expected nonzero exit from vote with no manifest");
+    } finally {
+        os.exec(["rm", "-rf", tmp]);
+    }
+});
+
 function writeFile(path, s) {
     const f = std.open(path, "wb");
     try { f.puts(s); } finally { f.close(); }

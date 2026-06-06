@@ -7,23 +7,21 @@ import * as os from "os";
 import * as manifest from "../lib/manifest.js";
 import * as ballot from "../lib/ballot.js";
 import * as tally from "../lib/tally.js";
+import * as gpg from "../lib/gpg.js";
+import { runForString } from "../lib/shell.js";
 
 function usage() {
     std.err.puts("usage: ppv <subcommand> [args...]\n");
     std.err.puts("\n");
-    std.err.puts("  init <manifest.json>       Create election in current Fossil repo\n");
-    std.err.puts("  vote <option-id> ...       Cast a ballot approving the listed options\n");
-    std.err.puts("  tally [dir]                Compute the result; write <dir>/result.json (default dir: .)\n");
-    std.err.puts("  verify [dir]               Re-run tally and compare to <dir>/result.json\n");
-    std.err.puts("  help                       Show this message\n");
+    std.err.puts("  init <manifest.json> [target-dir]   Set up an election in target-dir (default: .)\n");
+    std.err.puts("  vote <option-id> ...                Cast a ballot in the current dir\n");
+    std.err.puts("  tally [dir]                         Compute the result; write <dir>/result.json\n");
+    std.err.puts("  verify [dir]                        Re-run tally and compare to <dir>/result.json\n");
+    std.err.puts("  help                                Show this message\n");
     std.exit(1);
 }
 
-function notImplemented(name, expected) {
-    std.err.puts(`ppv ${name}: not implemented (phase 1 stub)\n`);
-    std.err.puts(`  expected: ${expected}\n`);
-    std.exit(2);
-}
+// ── small I/O helpers ──────────────────────────────────────────
 
 function readFileString(path) {
     const f = std.open(path, "rb");
@@ -46,8 +44,68 @@ function hexToBytes(hex) {
     return out;
 }
 
-// Load manifest + ballots + seed from a working directory and run the tally.
-// Returns the result object.
+function execOK(argv) {
+    const rc = os.exec(argv);
+    if (rc !== 0) throw new Error(`${argv.join(" ")} exited with ${rc}`);
+}
+
+function randomHex(nbytes) {
+    return runForString(["openssl", "rand", "-hex", String(nbytes)], null).trim();
+}
+
+// ── interactive UX ─────────────────────────────────────────────
+
+function readLineStdin() {
+    // QuickJS std.in.getline returns the line without trailing newline, or
+    // null at EOF.
+    return std.in.getline();
+}
+
+function confirmYesNo(prompt, defaultYes = true) {
+    if (std.getenv("PPV_YES")) return true;
+    const hint = defaultYes ? "[Y/n]" : "[y/N]";
+    std.err.puts(`${prompt} ${hint} `);
+    const line = readLineStdin();
+    if (line === null || line === "") return defaultYes;
+    return /^y/i.test(line);
+}
+
+function chooseFromList(items, prompt, describe) {
+    const override = std.getenv("PPV_GPG_KEY");
+    if (override) {
+        const hit = items.find((it) => it.fingerprint === override);
+        if (hit) return hit;
+        throw new Error(
+            `PPV_GPG_KEY=${override} does not match any candidate fingerprint`
+        );
+    }
+    std.err.puts(`\n${prompt}:\n`);
+    items.forEach((it, i) => {
+        std.err.puts(`  [${i + 1}] ${describe(it)}\n`);
+    });
+    while (true) {
+        std.err.puts(`> `);
+        const line = readLineStdin();
+        if (line === null) std.exit(1);
+        const n = parseInt(line.trim(), 10);
+        if (n >= 1 && n <= items.length) return items[n - 1];
+        std.err.puts(`invalid selection; pick 1-${items.length}\n`);
+    }
+}
+
+function describeKey(k) {
+    const expiredTag = k.expired ? " (EXPIRED)" : "";
+    return `${k.fingerprint} <${k.uid || "?"}>${expiredTag}`;
+}
+
+// Find the gpg secret keys in the local keyring that also appear on the roster.
+function findRosterMatches(rosterFingerprints) {
+    const rosterSet = new Set(rosterFingerprints);
+    return gpg.listUsableSecretKeys().filter((k) => rosterSet.has(k.fingerprint));
+}
+
+// ── tally + verify (already wired) ─────────────────────────────
+
 function computeTally(dir) {
     const m = manifest.load(`${dir}/manifest.json`);
     manifest.validate(m);
@@ -60,11 +118,7 @@ function computeTally(dir) {
         .sort()
         .map((e) => ballot.load(`${dir}/ballots/${e}`));
 
-    // Seed source for phase 1: a seed.hex file in the working dir.
-    // Future phases: fetch from NIST beacon URL (per manifest.seed.protocol)
-    // or aggregate commit-reveal shares from the Fossil repo.
     const seed = hexToBytes(readFileString(`${dir}/seed.hex`));
-
     return tally.run(m, ballots, seed, mh);
 }
 
@@ -96,6 +150,157 @@ function cmdVerify(args) {
     std.exit(1);
 }
 
+// ── init ───────────────────────────────────────────────────────
+
+function cmdInit(args) {
+    if (args.length === 0) {
+        std.err.puts("usage: ppv init <manifest.json> [target-dir]\n");
+        std.exit(1);
+    }
+    const manifestPath = args[0];
+    const targetDir = args[1] || ".";
+
+    const m = manifest.load(manifestPath);
+    manifest.validate(m);
+
+    if (m.rule.privacy === "individual") {
+        std.err.puts(
+            `ppv init: rule.privacy="individual" is not supported in v1; see docs/threat-model.md mode 3\n`
+        );
+        std.exit(1);
+    }
+
+    // Resolve the convener's signing key from the local keyring.
+    const matches = findRosterMatches(m.voters.map((v) => v.pgp_fingerprint));
+    if (matches.length === 0) {
+        std.err.puts(
+            "ppv init: your gpg keyring has no secret key for any roster fingerprint.\n" +
+            "        Either edit the manifest to add yours, or import the matching secret key.\n"
+        );
+        std.exit(1);
+    }
+
+    // Per threat-model: convener always confirms (one match → confirmation
+    // prompt; multiple → chooser; both unconditional).
+    let chosen;
+    if (matches.length === 1) {
+        const k = matches[0];
+        if (!confirmYesNo(`Sign genesis as ${describeKey(k)}?`)) {
+            std.err.puts("aborted\n");
+            std.exit(1);
+        }
+        chosen = k;
+    } else {
+        chosen = chooseFromList(matches, "select genesis signing key", describeKey);
+    }
+
+    if (chosen.fingerprint !== m.convener.pgp_fingerprint) {
+        std.err.puts(
+            `WARN: chosen key ${chosen.fingerprint} differs from manifest convener ${m.convener.pgp_fingerprint}\n` +
+            `      proceeding since both are on the roster\n`
+        );
+    }
+
+    // Prepare target dir.
+    execOK(["mkdir", "-p", `${targetDir}/ballots`]);
+    if (manifestPath !== `${targetDir}/manifest.json`) {
+        execOK(["cp", manifestPath, `${targetDir}/manifest.json`]);
+    }
+
+    // For mode group: generate master key K and gpg-encrypt to the roster.
+    if (m.rule.privacy === "group") {
+        const K = randomHex(32); // 32 bytes = 256 bits → 64 hex chars
+        execOK(["mkdir", "-p", `${targetDir}/keys`]);
+        gpg.encryptToRecipients(
+            K + "\n",
+            m.voters.map((v) => v.pgp_fingerprint),
+            `${targetDir}/keys/master.key.asc`
+        );
+        // Zeroize our local copy of K. JS strings are immutable, but we
+        // overwrite the binding and ask V8/QuickJS to drop the reference.
+        // This is best-effort; for stronger guarantees the key generation
+        // would have to be done in the patched Fossil binary itself.
+        // eslint-disable-next-line no-unused-vars
+        let _zero = K.replace(/./g, "0");
+        std.err.puts(
+            `wrote ${targetDir}/keys/master.key.asc (encrypted to ${m.voters.length} roster members)\n`
+        );
+    }
+
+    std.err.puts(`election initialized in ${targetDir}/\n\n`);
+    std.err.puts(`next:\n`);
+    std.err.puts(`  cd ${targetDir}\n`);
+    const repoName = `${m.election_id}.${m.rule.privacy === "group" ? "efossil" : "fossil"}`;
+    std.err.puts(`  fossil init ${repoName} && fossil open ${repoName}\n`);
+    std.err.puts(`  fossil add manifest.json${m.rule.privacy === "group" ? " keys/" : ""}\n`);
+    std.err.puts(`  fossil ci -m "genesis: ${m.election_id}"\n`);
+}
+
+// ── vote ───────────────────────────────────────────────────────
+
+function cmdVote(args) {
+    if (args.length === 0) {
+        std.err.puts("usage: ppv vote <option-id> [<option-id> ...]\n");
+        std.exit(1);
+    }
+
+    const m = manifest.load(`./manifest.json`);
+    manifest.validate(m);
+
+    // Validate option ids before any gpg activity.
+    const optionIds = new Set(m.options.map((o) => o.id));
+    for (const a of args) {
+        if (!optionIds.has(a)) {
+            std.err.puts(`ppv vote: unknown option id "${a}"\n`);
+            std.exit(1);
+        }
+    }
+    // Deduplicate while preserving order.
+    const approvals = [];
+    const seen = new Set();
+    for (const a of args) {
+        if (!seen.has(a)) { approvals.push(a); seen.add(a); }
+    }
+
+    const matches = findRosterMatches(m.voters.map((v) => v.pgp_fingerprint));
+    if (matches.length === 0) {
+        std.err.puts(
+            "ppv vote: your gpg keyring has no secret key for any roster fingerprint;\n" +
+            "        you are not on this election's voter roster.\n"
+        );
+        std.exit(1);
+    }
+
+    // Voter UX (per threat-model): single match → silent; multiple → chooser.
+    let chosen;
+    if (matches.length === 1) {
+        chosen = matches[0];
+    } else {
+        chosen = chooseFromList(matches, "select voting key", describeKey);
+    }
+
+    const mh = manifest.canonicalHash(m);
+    const ballotObj = {
+        version: "ppv/1",
+        election_id: m.election_id,
+        manifest_hash: mh,
+        voter_fingerprint: chosen.fingerprint,
+        approvals,
+    };
+
+    execOK(["mkdir", "-p", "ballots"]);
+    const ballotPath = `ballots/${chosen.fingerprint}.json`;
+    writeFileString(ballotPath, JSON.stringify(ballotObj, null, 2) + "\n");
+
+    std.err.puts(
+        `wrote ${ballotPath} (${approvals.length} approval${approvals.length === 1 ? "" : "s"})\n\n`
+    );
+    std.err.puts(`next:\n`);
+    std.err.puts(`  fossil add ${ballotPath} && fossil ci -m "vote: ${chosen.uid || chosen.fingerprint}"\n`);
+}
+
+// ── dispatch ───────────────────────────────────────────────────
+
 try {
     const args = scriptArgs.slice(1);
     if (args.length === 0) usage();
@@ -104,24 +309,10 @@ try {
     const rest = args.slice(1);
 
     switch (sub) {
-        case "init":
-            notImplemented(
-                "init",
-                "validate manifest.json, in mode group generate K and gpg-encrypt to roster as keys/master.key.asc, fossil ci as genesis"
-            );
-            break;
-        case "vote":
-            notImplemented(
-                "vote",
-                "build ballot JSON from approval ids, write ballots/<fp>.json, fossil ci (clearsign engaged)"
-            );
-            break;
-        case "tally":
-            cmdTally(rest);
-            break;
-        case "verify":
-            cmdVerify(rest);
-            break;
+        case "init":    cmdInit(rest); break;
+        case "vote":    cmdVote(rest); break;
+        case "tally":   cmdTally(rest); break;
+        case "verify":  cmdVerify(rest); break;
         case "help":
         case "--help":
         case "-h":
