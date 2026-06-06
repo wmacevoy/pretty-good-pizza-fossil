@@ -7,7 +7,7 @@ This directory builds a Fossil binary with SQLCipher (encrypted storage), LibreS
 **Skeleton.** `build-fossil.sh` validates inputs and lays out the build sequence. Three steps are explicit TODOs (marked in the script) and must be pinned before the recipe is reproducible:
 
 1. **Fossil source layout** — confirm where Fossil expects its bundled SQLite amalgamation (recent trunks: `src/sqlite3.c`, but this has shifted historically).
-2. **`PRAGMA key` wiring** — patch Fossil's `db_open` (in `src/db.c`) to be **mode-aware** per the manifest's `rule.privacy`: skip `PRAGMA key` for `"public"`, decrypt `keys/master.key.asc` via gpg and pass `PRAGMA key = "x'<hex>'";` for `"group"`, reject `"individual"` with a clear error. Full design in `docs/threat-model.md` (currently DRAFT). The patch should not be written until that doc is marked `Status: Pinned`. The patch lives at `build/patches/fossil-db-key.patch` (to be written).
+2. **`PRAGMA key` wiring** — patch Fossil's `db_open` (in `src/db.c`) to be **mode-aware** per the manifest's `rule.privacy`: skip `PRAGMA key` for `"public"`, shell out to `gpg --decrypt --output - keys/master.key.asc` and pass `PRAGMA key = "x'<hex>'";` for `"group"`, reject `"individual"` with a clear error. Full design in `docs/threat-model.md` (Pinned). The patch lives at `build/patches/fossil-db-key.patch` (to be written next).
 3. **Fossil configure flags** — verify the `./configure` invocation against the pinned `FOSSIL_REF`; autosetup options drift between Fossil releases.
 
 ## Dependencies

@@ -1,6 +1,6 @@
 # Threat model
 
-**Status: DRAFT.** Captures the at-rest encryption design for phase 2 of the build (custom Fossil with SQLCipher). Open questions are listed at the bottom. Until this doc is moved to `Status: Pinned`, the build patch (`build/patches/fossil-db-key.patch`) should not be written against it.
+**Status: Pinned.** Captures the at-rest encryption design for phase 2 of the build (custom Fossil with SQLCipher). `build/patches/fossil-db-key.patch` may now be written against this spec.
 
 ## Scope
 
@@ -20,6 +20,17 @@ Two roster invariants apply across all modes:
 
 - **The convener is always a roster member.** They generate keys (mode 2) or otherwise bootstrap the election as a participant, not as a privileged external party. Avoids a special "convener role" with different permissions.
 - **Rosters are frozen at genesis** — no add or remove of voters mid-election. A roster member who chooses not to participate simply submits no ballot, which is equivalent to all-zero approvals. This removes whole categories of key-management churn (no rotation on join/leave).
+
+## Mode is genesis-locked
+
+The trust mode is determined by `rule.privacy` in the manifest and is fixed for the life of the election. There is no protocol-level upgrade or downgrade path. Two reasons:
+
+- **Public → group later cannot retroactively hide anything.** Plaintext content is already in clones, backups, peer caches, and possibly outside copies. Encrypting today does not unsay yesterday.
+- **Group → public later** is technically possible (decrypt and republish) but is an out-of-band declassification by the roster, not a tool feature. The audience for the content grows; past privacy was bounded to "roster members during the election," which is unaffected.
+
+To change a privacy posture, start a new election with a new manifest. Optionally reuse the roster and options by copying them into the new manifest at drafting time — that is just JSON authoring, not a protocol operation. The new election has a different `manifest_hash` and is, by design, a different election.
+
+Group → public declassification is a documented one-time manual action: a roster member decrypts the repo locally and republishes the plaintext content. It is not a `fossil ppp` subcommand and should not become one.
 
 ## What lives in the local repo
 
@@ -90,6 +101,22 @@ Manifest sets `rule.privacy = "group"`. The repo is encrypted with a single SQLC
 
 4. **Threats not addressed**: any roster member can decrypt the repo. By design. If you do not trust your peers with the contents, mode 2 is the wrong choice — use mode 3 when it lands.
 
+### Convener init-time UX
+
+The convener's gpg key signs the genesis manifest (via clearsign) and serves as one of the recipients in the multi-recipient encrypt of `K`. The same key must be used for both, and it must be one of the manifest's roster fingerprints (per the convener-on-roster invariant).
+
+On `fossil ppp init <manifest.json>`, the tool:
+
+1. Walks the manifest's roster fingerprints and identifies which entries have a usable secret key in the convener's keyring (not expired, not revoked, secret-key part available or smart-card connected).
+2. If **exactly one** match, presents a confirmation prompt:
+   `Sign genesis as 7A4B…XX <Alice convener@example.com> (expires 2027-06-30)? [Y/n]`.
+3. If **multiple** matches, presents a numbered chooser of all matching keys (fingerprint + uid + expiry).
+4. If **zero** matches, errors: `your gpg keyring has no secret key for any roster fingerprint; either edit the manifest to add yours, or import the matching secret key.`
+
+The confirmation prompt is **unconditional** at init — voters at first-open skip the prompt when only one key matches because their stakes are lower and their frequency higher, but the convener is signing the genesis manifest, which is the highest-stakes operation in the protocol. A one-time speed bump is appropriate.
+
+After confirmation, the same key is used both for the clearsign of the genesis commit and as one of the `--recipient` slots in the multi-recipient gpg encrypt of `K`.
+
 ### First-open UX
 
 On first `fossil open` of a mode-2 clone:
@@ -133,23 +160,20 @@ Out of v1 scope. Sketch for future reference: each voter has their own key, no k
 
 1. Read `rule.privacy` from the manifest at `db_open` time. The manifest is the genesis artifact and is always accessible via Fossil's blob store before any encrypted DB access.
 2. If `rule.privacy == "public"`, skip `PRAGMA key` entirely. Behaves as stock Fossil + SQLite.
-3. If `rule.privacy == "group"`, locate `keys/master.key.asc` (committed to the repo). Either shell out to `gpg --decrypt` or link `libgpgme`; recover `K`; issue `PRAGMA key = "x'<K hex>'";`; zeroize the in-memory copy of `K`.
+3. If `rule.privacy == "group"`, locate `keys/master.key.asc` (committed to the repo) and shell out to `gpg --decrypt --output - keys/master.key.asc` to recover `K`. No `--batch` flag — that lets `gpg-agent` broker interactive passphrase entry and smart-card prompts when needed. Read decrypted bytes from gpg's stdout; check exit code; issue `PRAGMA key = "x'<K hex>'";` and zeroize the in-memory copy of `K`.
 4. If `rule.privacy == "individual"`, error out with "individual mode not supported in this build of fossil-ppp; see docs/threat-model.md mode 3."
 5. Honor the `FOSSIL_PPP_KEY` env var as a mode-2 escape hatch: if set, use its value directly as `K` and skip the gpg-decrypt step. Documented as testing/CI-only; the README must flag that this defeats the at-rest protection while the variable is in the process environment.
 
 The patch is small (~50-80 lines once gpg-shellout error handling is included). The trickier parts are robustly invoking `gpg-agent` (so the user is not re-prompted on every operation) and handling the not-on-roster case in step 1 of the first-open UX.
 
-## Resolved decisions (no longer open)
+## Resolved decisions
 
 - **Cross-platform target → PGP-wrap is the encryption-key UX**, not OS keychain. OS keychain integration deferred indefinitely.
 - **Roster is frozen at genesis. The convener is always a roster member.** No add/remove churn; abstention is a no-op (zero approvals).
+- **Mode is genesis-locked.** No protocol-level upgrade/downgrade. Changing privacy posture requires a new election with a new manifest.
 - **Mode 2 uses gpg's multi-recipient encrypt** for a single shared `K`, stored at `keys/master.key.asc` in the repo. Not per-voter wrapped copies, not OS-specific storage.
+- **Convener init-time UX always confirms the signing key**, even when only one roster fingerprint matches. The genesis signature is unrecoverable; the one-time speed bump is appropriate.
+- **Voter first-open UX uses a roster-aware chooser** when the voter has multiple matching gpg keys; warns and proceeds read-only when the voter has none. No confirmation prompt when exactly one key matches — lower stakes, higher frequency than init.
+- **gpg invocation is by shell-out**, not libgpgme link. Zero new build deps, process isolation, agent-mediated UX. Exact invocation: `gpg --decrypt --output - keys/master.key.asc`, no `--batch`.
 - **Hardware tokens are documented as a free upgrade** in modes 2 and 3, not mandatory.
 - **Key rotation is on-demand only** (suspected compromise). No mandated cadence, no membership-driven rotation.
-- **First-open UX uses a roster-aware chooser** when the voter has multiple matching gpg keys; warns and proceeds read-only when the voter has none.
-
-## Open questions
-
-1. **Convener `init`-time chooser when the convener has multiple gpg keys**: the convener faces the same chooser problem as the voter at first-open, plus a stronger correctness constraint (they are signing the genesis manifest). Same fix (chooser if >1 match) seems right; worth pinning explicitly.
-2. **Mode upgrade path is one-way**: a public-mode election cannot retroactively become group-mode (the historical content was already plaintext). Worth documenting that "start a new election" is the supported answer when a privacy posture needs to change.
-3. **gpg invocation: shell out vs libgpgme link**: shelling out is simpler and depends only on a system `gpg` install; libgpgme adds a build dependency and reduces process-fork overhead. For phase 2, shell out — match the simplicity bias from sqlcipher-libressl's dependency story. Note for the patch author.

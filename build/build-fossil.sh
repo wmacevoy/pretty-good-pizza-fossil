@@ -96,12 +96,13 @@ cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SQLITE_H"
 # TODO(db-key-wiring): Fossil's db_open path (src/db.c) needs a small patch
 # to be MODE-AWARE per the manifest's rule.privacy field:
 #   - rule.privacy == "public":  skip PRAGMA key entirely (stock SQLite behavior)
-#   - rule.privacy == "group":   gpg --decrypt keys/master.key.asc to recover K,
-#                                then PRAGMA key = "x'<K hex>'"; zeroize K
+#   - rule.privacy == "group":   shell out to
+#                                `gpg --decrypt --output - keys/master.key.asc`
+#                                (no --batch; gpg-agent handles prompts), recover K,
+#                                then PRAGMA key = "x'<K hex>'"; zeroize K.
 #   - rule.privacy == "individual": error (deferred to a future phase)
 # Also honor FOSSIL_PPP_KEY env var as a mode-2 escape hatch (testing only).
-# Full design in docs/threat-model.md (DRAFT). Do not write this patch until
-# threat-model.md is marked Status: Pinned.
+# Full design is in docs/threat-model.md (now Pinned).
 #
 if [ -f "$SCRIPT_DIR/patches/fossil-db-key.patch" ]; then
     echo "  applying fossil-db-key.patch"
