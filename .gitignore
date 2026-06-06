@@ -4,9 +4,6 @@
 \#*\#
 .\#*
 
-# Tcl
-*.tcl.bak
-
 # Fossil checkout artifacts (in case a fossil checkout is mixed with this git tree)
 *.fossil
 _FOSSIL_
@@ -16,3 +13,7 @@ manifest.uuid
 
 # Local test scratch
 test/scratch/
+
+# Build artifacts
+build/dist/
+vendor/libressl/build-out/

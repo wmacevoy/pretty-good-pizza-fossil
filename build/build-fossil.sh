@@ -30,15 +30,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/dist}"
 
-# Load pinned upstream versions (FOSSIL_REF in particular). Each variable can
-# still be overridden by setting it in the environment before invocation.
+# Load pinned upstream version metadata.
 # shellcheck source=./versions.env
 . "$SCRIPT_DIR/versions.env"
 
-# ── Required env ────────────────────────────────────────────────
-: "${LIBRESSL_PREFIX:?Set LIBRESSL_PREFIX to your LibreSSL install prefix}"
-: "${SQLCIPHER_DIR:?Set SQLCIPHER_DIR to a sqlcipher-libressl checkout}"
-: "${FOSSIL_SRC:?Set FOSSIL_SRC to a Fossil source checkout (at FOSSIL_REF=$FOSSIL_REF)}"
+# Default the source paths to the vendored submodules under ../vendor/.
+# Each can be overridden by exporting before invoking, e.g.
+#   FOSSIL_SRC=$HOME/work/fossil-trunk ./build/build-fossil.sh
+: "${FOSSIL_SRC:=$REPO_ROOT/vendor/fossil}"
+: "${SQLCIPHER_DIR:=$REPO_ROOT/vendor/sqlcipher-libressl}"
+: "${LIBRESSL_SRC:=$REPO_ROOT/vendor/libressl}"
+: "${LIBRESSL_PREFIX:=$REPO_ROOT/vendor/libressl/build-out}"
 
 # Parallelism
 if [ -z "${JOBS:-}" ]; then
@@ -51,14 +53,29 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
+# ── Step 0: Build LibreSSL from vendor source if not already built ──
+if [ ! -f "$LIBRESSL_PREFIX/lib/libcrypto.a" ] || [ ! -f "$LIBRESSL_PREFIX/lib/libssl.a" ]; then
+    echo "==> Building LibreSSL $LIBRESSL_VERSION from $LIBRESSL_SRC"
+    [ -d "$LIBRESSL_SRC" ] || { echo "ERR: LIBRESSL_SRC not a directory: $LIBRESSL_SRC (did you 'git submodule update --init'?)"; exit 1; }
+    (
+        cd "$LIBRESSL_SRC"
+        if [ ! -f ./configure ]; then
+            ./autogen.sh
+        fi
+        ./configure --prefix="$LIBRESSL_PREFIX" --disable-shared --enable-static
+        make -j"$JOBS"
+        make install
+    )
+fi
+
 # ── Sanity checks ───────────────────────────────────────────────
 echo "==> Verifying inputs"
 [ -f "$LIBRESSL_PREFIX/lib/libcrypto.a" ]        || { echo "ERR: $LIBRESSL_PREFIX/lib/libcrypto.a missing"; exit 1; }
 [ -f "$LIBRESSL_PREFIX/lib/libssl.a" ]           || { echo "ERR: $LIBRESSL_PREFIX/lib/libssl.a missing";    exit 1; }
 [ -f "$LIBRESSL_PREFIX/include/openssl/crypto.h" ] || { echo "ERR: LibreSSL headers missing under $LIBRESSL_PREFIX/include"; exit 1; }
-[ -d "$SQLCIPHER_DIR" ]                          || { echo "ERR: SQLCIPHER_DIR not a directory: $SQLCIPHER_DIR"; exit 1; }
-[ -d "$FOSSIL_SRC" ]                             || { echo "ERR: FOSSIL_SRC not a directory: $FOSSIL_SRC"; exit 1; }
-command -v qjs >/dev/null 2>&1                   || { echo "WARN: qjs (QuickJS) not on PATH; not required to build Fossil but required to run bin/ppv against the result"; }
+[ -d "$SQLCIPHER_DIR" ]                          || { echo "ERR: SQLCIPHER_DIR not a directory: $SQLCIPHER_DIR (did you 'git submodule update --init'?)"; exit 1; }
+[ -d "$FOSSIL_SRC" ]                             || { echo "ERR: FOSSIL_SRC not a directory: $FOSSIL_SRC (did you 'git submodule update --init'?)"; exit 1; }
+command -v qjs >/dev/null 2>&1                   || { echo "WARN: qjs (QuickJS) not on PATH; not required to build Fossil but required to run bin/ppv against the result; build with: (cd vendor/quickjs && make)"; }
 
 if [ -n "${FOSSIL_REF:-}" ]; then
     actual="$(git -C "$FOSSIL_SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
