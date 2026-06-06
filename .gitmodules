@@ -1,0 +1,12 @@
+[submodule "vendor/fossil"]
+	path = vendor/fossil
+	url = https://github.com/drhsqlite/fossil-mirror.git
+[submodule "vendor/sqlcipher-libressl"]
+	path = vendor/sqlcipher-libressl
+	url = https://github.com/wmacevoy/sqlcipher-libressl.git
+[submodule "vendor/libressl"]
+	path = vendor/libressl
+	url = https://github.com/libressl/portable.git
+[submodule "vendor/quickjs"]
+	path = vendor/quickjs
+	url = https://github.com/bellard/quickjs.git
