@@ -3,14 +3,18 @@
 // Subcommands: init, vote, tally, verify.
 
 import * as std from "std";
+import * as os from "os";
+import * as manifest from "../lib/manifest.js";
+import * as ballot from "../lib/ballot.js";
+import * as tally from "../lib/tally.js";
 
 function usage() {
     std.err.puts("usage: ppv <subcommand> [args...]\n");
     std.err.puts("\n");
     std.err.puts("  init <manifest.json>       Create election in current Fossil repo\n");
     std.err.puts("  vote <option-id> ...       Cast a ballot approving the listed options\n");
-    std.err.puts("  tally                      Compute the result from synced ballots\n");
-    std.err.puts("  verify                     Re-run tally, compare to committed result\n");
+    std.err.puts("  tally [dir]                Compute the result; write <dir>/result.json (default dir: .)\n");
+    std.err.puts("  verify [dir]               Re-run tally and compare to <dir>/result.json\n");
     std.err.puts("  help                       Show this message\n");
     std.exit(1);
 }
@@ -21,43 +25,113 @@ function notImplemented(name, expected) {
     std.exit(2);
 }
 
-const args = scriptArgs.slice(1);
-if (args.length === 0) usage();
+function readFileString(path) {
+    const f = std.open(path, "rb");
+    if (f === null) throw new Error(`cannot open ${path}`);
+    try { return f.readAsString(); } finally { f.close(); }
+}
 
-const sub = args[0];
-const rest = args.slice(1);
+function writeFileString(path, data) {
+    const f = std.open(path, "wb");
+    if (f === null) throw new Error(`cannot open ${path} for write`);
+    try { f.puts(data); } finally { f.close(); }
+}
 
-switch (sub) {
-    case "init":
-        notImplemented(
-            "init",
-            "validate manifest.json, in mode group generate K and gpg-encrypt to roster as keys/master.key.asc, fossil ci as genesis"
-        );
-        break;
-    case "vote":
-        notImplemented(
-            "vote",
-            "build ballot JSON from approval ids, write ballots/<fp>.json, fossil ci (clearsign engaged)"
-        );
-        break;
-    case "tally":
-        notImplemented(
-            "tally",
-            "load manifest + all ballots, fetch/derive seed, run tally.run, write result.json, fossil ci"
-        );
-        break;
-    case "verify":
-        notImplemented(
-            "verify",
-            "re-run tally from public inputs, compare to committed result, exit 0 on match"
-        );
-        break;
-    case "help":
-    case "--help":
-    case "-h":
-        usage();
-        break;
-    default:
-        std.err.puts(`unknown subcommand: ${sub}\n`);
-        usage();
+function hexToBytes(hex) {
+    hex = hex.trim();
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) {
+        out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return out;
+}
+
+// Load manifest + ballots + seed from a working directory and run the tally.
+// Returns the result object.
+function computeTally(dir) {
+    const m = manifest.load(`${dir}/manifest.json`);
+    manifest.validate(m);
+    const mh = manifest.canonicalHash(m);
+
+    const [entries, err] = os.readdir(`${dir}/ballots`);
+    if (err !== 0) throw new Error(`cannot read ${dir}/ballots`);
+    const ballots = entries
+        .filter((e) => e.endsWith(".json"))
+        .sort()
+        .map((e) => ballot.load(`${dir}/ballots/${e}`));
+
+    // Seed source for phase 1: a seed.hex file in the working dir.
+    // Future phases: fetch from NIST beacon URL (per manifest.seed.protocol)
+    // or aggregate commit-reveal shares from the Fossil repo.
+    const seed = hexToBytes(readFileString(`${dir}/seed.hex`));
+
+    return tally.run(m, ballots, seed, mh);
+}
+
+function cmdTally(args) {
+    const dir = args[0] || ".";
+    const result = computeTally(dir);
+    const path = `${dir}/result.json`;
+    writeFileString(path, JSON.stringify(result, null, 2) + "\n");
+    std.err.puts(
+        `wrote ${path}: mode ${result.mode}, ${result.selected.length} selected` +
+        (result.unspent != null ? `, ${result.unspent} unspent` : "") +
+        "\n"
+    );
+}
+
+function cmdVerify(args) {
+    const dir = args[0] || ".";
+    const recomputed = computeTally(dir);
+    const committed = JSON.parse(readFileString(`${dir}/result.json`));
+    const a = JSON.stringify(recomputed);
+    const b = JSON.stringify(committed);
+    if (a === b) {
+        std.err.puts(`OK: ${dir}/result.json matches recomputed tally\n`);
+        std.exit(0);
+    }
+    std.err.puts(`MISMATCH between ${dir}/result.json and recomputed tally:\n`);
+    std.err.puts(`  committed:  ${b}\n`);
+    std.err.puts(`  recomputed: ${a}\n`);
+    std.exit(1);
+}
+
+try {
+    const args = scriptArgs.slice(1);
+    if (args.length === 0) usage();
+
+    const sub = args[0];
+    const rest = args.slice(1);
+
+    switch (sub) {
+        case "init":
+            notImplemented(
+                "init",
+                "validate manifest.json, in mode group generate K and gpg-encrypt to roster as keys/master.key.asc, fossil ci as genesis"
+            );
+            break;
+        case "vote":
+            notImplemented(
+                "vote",
+                "build ballot JSON from approval ids, write ballots/<fp>.json, fossil ci (clearsign engaged)"
+            );
+            break;
+        case "tally":
+            cmdTally(rest);
+            break;
+        case "verify":
+            cmdVerify(rest);
+            break;
+        case "help":
+        case "--help":
+        case "-h":
+            usage();
+            break;
+        default:
+            std.err.puts(`unknown subcommand: ${sub}\n`);
+            usage();
+    }
+} catch (e) {
+    std.err.puts(`ppv: ${e.message}\n`);
+    std.exit(1);
 }

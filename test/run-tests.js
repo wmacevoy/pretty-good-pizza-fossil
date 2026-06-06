@@ -139,5 +139,67 @@ for (const name of ["mode-c-boundary-tie", "mode-a-replacement", "mode-b-no-repl
     });
 }
 
+// ── bin/ppv CLI: tally + verify round-trip ─────────────────────
+
+function execOK(argv) {
+    const rc = os.exec(argv);
+    if (rc !== 0) throw new Error(`${argv.join(" ")} exited with ${rc}`);
+}
+
+function mktempCopyOfFixture(name) {
+    const tmp = `/tmp/ppv-test-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    execOK(["mkdir", "-p", tmp]);
+    execOK(["cp", "-R", `${REPO}/test/fixtures/sampling/${name}/.`, tmp]);
+    return tmp;
+}
+
+test("bin/ppv tally writes result.json matching expected.json", () => {
+    const tmp = mktempCopyOfFixture("mode-c-boundary-tie");
+    try {
+        execOK([`${REPO}/bin/ppv`, "tally", tmp]);
+        const result = JSON.parse(readFile(`${tmp}/result.json`));
+        const expected = JSON.parse(readFile(`${tmp}/expected.json`));
+        if (JSON.stringify(result) !== JSON.stringify(expected)) {
+            throw new Error(
+                `result.json != expected.json:\n  got: ${JSON.stringify(result)}\n  exp: ${JSON.stringify(expected)}`
+            );
+        }
+    } finally {
+        os.exec(["rm", "-rf", tmp]);
+    }
+});
+
+test("bin/ppv verify accepts matching result.json", () => {
+    const tmp = mktempCopyOfFixture("mode-a-replacement");
+    try {
+        execOK([`${REPO}/bin/ppv`, "tally", tmp]);
+        execOK([`${REPO}/bin/ppv`, "verify", tmp]);
+    } finally {
+        os.exec(["rm", "-rf", tmp]);
+    }
+});
+
+test("bin/ppv verify rejects tampered result.json with nonzero exit", () => {
+    const tmp = mktempCopyOfFixture("mode-b-no-replacement");
+    try {
+        execOK([`${REPO}/bin/ppv`, "tally", tmp]);
+        // Tamper.
+        const tampered = JSON.stringify({ mode: "B", selected: ["WRONG"], unspent: 999 });
+        writeFile(`${tmp}/result.json`, tampered);
+        // Redirect stderr to discard so test output stays clean.
+        const devnull = os.open("/dev/null", os.O_WRONLY);
+        const rc = os.exec([`${REPO}/bin/ppv`, "verify", tmp], { stderr: devnull });
+        os.close(devnull);
+        if (rc === 0) throw new Error("expected nonzero exit from verify on tampered result");
+    } finally {
+        os.exec(["rm", "-rf", tmp]);
+    }
+});
+
+function writeFile(path, s) {
+    const f = std.open(path, "wb");
+    try { f.puts(s); } finally { f.close(); }
+}
+
 std.out.puts(`\n${passed} passed, ${failed} failed\n`);
 std.exit(failed > 0 ? 1 : 0);

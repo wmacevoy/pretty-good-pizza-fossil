@@ -19,11 +19,12 @@ This document captures the ordered sequence of work to reach each milestone. The
 - `lib/manifest.js`: `load`, `validate` (full schema), `canonicalHash` implemented.
 - `lib/ballot.js`: `load`, `validate` (rules 1–5) implemented.
 - `lib/tally.js`: `run` implemented for all three modes (A, B, C), including threshold filter, SHAKE128 stream, BigInt weight computation, and mode-C tie-breaking. Cross-implementation regression fixtures frozen in `test/fixtures/sampling/{mode-c-boundary-tie,mode-a-replacement,mode-b-no-replacement}/`.
+- `bin/ppv tally [dir]` writes `result.json`; `bin/ppv verify [dir]` re-runs and diffs. Round-trip end-to-end tested.
 - `build/build-fossil.sh` incorporates the SEE-reuse approach (`--with-see=1`, `src/sqlite3-see.c`); drops `--with-tcl` since the CLI is now standalone.
 - Protocol abbreviation renamed `ppp` → `ppv` (avoids PGP collision); schema version is `"ppv/1"`.
 
 **Stubbed or missing:**
-- `bin/ppv` subcommands (`init`, `vote`, `tally`, `verify`) — print "not implemented (phase 1 stub)" and exit nonzero. The algorithm is in place; the CLI just needs wiring.
+- `bin/ppv init` and `bin/ppv vote` — print "not implemented (phase 1 stub)" and exit nonzero. Both need Fossil integration (commit the genesis manifest, clearsign a ballot file).
 - `build/patches/fossil-db-key.patch` — not written. Design pinned in `docs/threat-model.md`.
 - `versions.env` — LibreSSL, sqlcipher-libressl, and QuickJS versions still unpinned.
 
@@ -45,19 +46,17 @@ Order matters — each step depends on the ones above:
 6. **Run** `LIBRESSL_PREFIX=... SQLCIPHER_DIR=... FOSSIL_SRC=... ./build/build-fossil.sh`.
 7. **Verify**: `./build/dist/fossil-ppv version` reports the expected build flags; opening a stock (mode-1) repo works.
 
-## Milestone 2: First working tally
+## Milestone 2: First working tally — DONE
 
-Goal: a JS tally implementation that runs against frozen fixtures and produces the expected output byte-for-byte. This validates the algorithm independent of Fossil.
+Algorithm, fixtures, and CLI wiring all in place. `bin/ppv tally <dir>` writes `result.json`; `bin/ppv verify <dir>` re-runs and exits 0 on match, nonzero on tampering. Tests cover all three modes plus CLI round-trip.
 
-**Algorithm + fixtures: done.** `lib/tally.js::run` covers modes A/B/C; three frozen fixtures in `test/fixtures/sampling/` pass. Mode C hand-verified; modes A/B locked to current implementation output (any future reimplementation must reproduce these byte-for-byte).
+Phase 1 caveat that's worth knowing about: the seed currently comes from a `seed.hex` file in the working directory. The two protocols pinned in the manifest schema (NIST beacon, commit-reveal) are not yet implemented — fetching the beacon pulse at the declared timestamp, or aggregating commit-reveal shares from the repo, are next-up work but not blocking the tally itself.
 
-**Remaining:**
+Future polish (deferred, not blocking):
+- NIST beacon fetcher + commit-reveal aggregator for seed source.
+- Sampling fixtures for `threshold.type = fraction|top-k`, `tie_break = random|alphabetic`, mode C with `M >= ranked.length`.
 
-1. **Wire up `bin/ppv tally`**: load manifest + all ballots from a working directory (or a passed-in repo path), fetch the seed (NIST beacon URL or commit-reveal blob), call `tally.run`, write the result as `result.json`, return exit 0.
-2. **Wire up `bin/ppv verify`**: re-run the tally from public inputs and compare to the committed `result.json`. Exit 0 if match, nonzero if not.
-3. **Extend sampling fixtures** with edge cases as they come up (threshold modes other than `absolute`, tie_break = `random`/`alphabetic`, mode C with `M >= ranked.length`, etc.).
-
-Milestones 1 and 2 are independent and can run in parallel.
+Milestones 1 and 3 remain.
 
 ## Milestone 3: First federated election
 
