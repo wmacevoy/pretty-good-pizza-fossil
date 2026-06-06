@@ -27,11 +27,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/dist}"
 
+# Load pinned upstream versions (FOSSIL_REF in particular). Each variable can
+# still be overridden by setting it in the environment before invocation.
+# shellcheck source=./versions.env
+. "$SCRIPT_DIR/versions.env"
+
 # ── Required env ────────────────────────────────────────────────
 : "${LIBRESSL_PREFIX:?Set LIBRESSL_PREFIX to your LibreSSL install prefix}"
 : "${SQLCIPHER_DIR:?Set SQLCIPHER_DIR to a sqlcipher-libressl checkout}"
 : "${TCL_PREFIX:?Set TCL_PREFIX to your Tcl 8.6 install prefix}"
-: "${FOSSIL_SRC:?Set FOSSIL_SRC to a Fossil source checkout}"
+: "${FOSSIL_SRC:?Set FOSSIL_SRC to a Fossil source checkout (at FOSSIL_REF=$FOSSIL_REF)}"
 
 # Parallelism
 if [ -z "${JOBS:-}" ]; then
@@ -113,16 +118,15 @@ fi
 
 # ── Step 3: Configure Fossil ────────────────────────────────────
 echo "==> Configuring Fossil"
-#
-# TODO(configure-flags): Fossil's autosetup flag names have drifted across
-# releases. The set below is the intended shape; verify against the pinned
-# FOSSIL_REF before treating the recipe as reproducible. In particular:
-#   - --with-openssl=<prefix> uses the same flag for OpenSSL or LibreSSL;
-#     Fossil greps for libcrypto/libssl symbols at configure time.
-#   - --with-tcl + --with-tcl-stubs gives the linked-Tcl interpreter.
-#   - --json enables Fossil's JSON HTTP API endpoints (handy for the
-#     external CLI to inspect ballots without scraping HTML).
-#
+# Configure flags verified against Fossil $FOSSIL_VERSION auto.def.
+#   --with-openssl=<prefix>    same flag for OpenSSL or LibreSSL; Fossil
+#                              probes for libcrypto/libssl symbols at
+#                              configure time
+#   --with-tcl=<prefix>        Tcl install prefix; combined with --with-tcl-stubs
+#                              gives the linked-Tcl interpreter
+#   --json                     enables Fossil's JSON HTTP API endpoints
+#   --internal-sqlite=1        explicit; we substitute the bundled amalgamation
+#                              rather than linking an external SQLite
 (
     cd "$FOSSIL_SRC"
     ./configure \
@@ -130,6 +134,7 @@ echo "==> Configuring Fossil"
         --with-tcl="$TCL_PREFIX" \
         --with-tcl-stubs \
         --json \
+        --internal-sqlite=1 \
         CFLAGS="-DSQLITE_HAS_CODEC -DSQLCIPHER_CRYPTO_OPENSSL -O2" \
         LIBS="$LIBRESSL_PREFIX/lib/libssl.a $LIBRESSL_PREFIX/lib/libcrypto.a"
 )

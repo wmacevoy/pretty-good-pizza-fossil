@@ -4,11 +4,17 @@ This directory builds a Fossil binary with SQLCipher (encrypted storage), LibreS
 
 ## Status
 
-**Skeleton.** `build-fossil.sh` validates inputs and lays out the build sequence. Three steps are explicit TODOs (marked in the script) and must be pinned before the recipe is reproducible:
+**Skeleton.** `build-fossil.sh` validates inputs, sources pinned upstream versions from `versions.env`, and lays out the build sequence. Fossil is pinned to **version-2.28** (commit `1573b8e66e402f7d3f5cf70d37036a4ba2966edd` on the GitHub mirror, Fossil-native hash prefix `52445a27`, released 2026-03-11). Source-layout and configure-flag assumptions in the script are verified against this revision.
 
-1. **Fossil source layout** — confirm where Fossil expects its bundled SQLite amalgamation (recent trunks: `src/sqlite3.c`, but this has shifted historically).
-2. **`PRAGMA key` wiring** — patch Fossil's `db_open` (in `src/db.c`) to be **mode-aware** per the manifest's `rule.privacy`: skip `PRAGMA key` for `"public"`, shell out to `gpg --decrypt --output - keys/master.key.asc` and pass `PRAGMA key = "x'<hex>'";` for `"group"`, reject `"individual"` with a clear error. Full design in `docs/threat-model.md` (Pinned). The patch lives at `build/patches/fossil-db-key.patch` (to be written next).
-3. **Fossil configure flags** — verify the `./configure` invocation against the pinned `FOSSIL_REF`; autosetup options drift between Fossil releases.
+One step remains before the recipe is reproducible:
+
+1. **`PRAGMA key` wiring** — write `build/patches/fossil-db-key.patch` against Fossil's `src/db.c` to be **mode-aware** per the manifest's `rule.privacy`: skip `PRAGMA key` for `"public"`, shell out to `gpg --decrypt --output - keys/master.key.asc` and pass `PRAGMA key = "x'<hex>'";` for `"group"`, reject `"individual"` with a clear error. Full design in `docs/threat-model.md` (Pinned).
+
+LibreSSL, sqlcipher-libressl, and Tcl versions still need pinning in `versions.env`. Those are environment inputs to the script; pin them when ready.
+
+## Worth investigating before writing the patch
+
+Fossil 2.28 already exposes `--with-see=1` for the SQLite Encryption Extension (SEE — drh's commercial encryption add-on). That implies the source already has scaffolding for `PRAGMA key` / `PRAGMA rekey` and surrounding key-source plumbing along the SEE code paths. SQLCipher uses the same `PRAGMA key` API by design, so the SEE scaffolding may be largely reusable: the mode-aware patch could become an insertion into existing key-source code rather than a from-scratch wiring of `db_open`. Investigate the SEE code paths (`grep -r "PRAGMA key" src/`, `grep -r "with-see" src/`) before authoring the patch — if reusable, the patch shrinks substantially.
 
 ## Dependencies
 
