@@ -29,6 +29,7 @@ A single JSON file at `manifest.json` in the repo root. Canonicalized (sorted ke
 | `allocation` | string | `"A"` (stochastic with replacement), `"B"` (stochastic without replacement), `"C"` (deterministic weighted top-M). |
 | `budget` | integer | `M` in the spec — money, seats, or awards. |
 | `tie_break` | string | `"random"` (uses seed), `"first"`, or `"alphabetic"`. |
+| `privacy` | string | `"public"` (repo is plain SQLite, no at-rest encryption) or `"group"` (repo is SQLCipher-encrypted under a shared master key wrapped to the roster via multi-recipient gpg). `"individual"` is reserved for a future per-voter mode and is rejected by v1 builds. See `threat-model.md`. |
 
 ### `seed`
 
