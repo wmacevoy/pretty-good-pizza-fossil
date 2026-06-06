@@ -53,6 +53,28 @@ function randomHex(nbytes) {
     return runForString(["openssl", "rand", "-hex", String(nbytes)], null).trim();
 }
 
+// Returns true if `fossil version` succeeds. We avoid throwing on missing
+// binary so that init/vote can degrade gracefully to printing manual
+// instructions instead of erroring out hard.
+function hasFossil() {
+    const devnull = os.open("/dev/null", os.O_WRONLY);
+    try {
+        const rc = os.exec(["fossil", "version"], { stdout: devnull, stderr: devnull });
+        return rc === 0;
+    } finally {
+        os.close(devnull);
+    }
+}
+
+// Run a fossil command in cwd, echoing it like `set -x`. Throws on nonzero.
+function fossilExec(cwd, argv) {
+    std.err.puts(`+ (cd ${cwd}; ${argv.join(" ")})\n`);
+    const rc = os.exec(argv, { cwd });
+    if (rc !== 0) {
+        throw new Error(`${argv.join(" ")} (cwd=${cwd}) exited with ${rc}`);
+    }
+}
+
 // ── interactive UX ─────────────────────────────────────────────
 
 function readLineStdin() {
@@ -227,13 +249,42 @@ function cmdInit(args) {
         );
     }
 
-    std.err.puts(`election initialized in ${targetDir}/\n\n`);
-    std.err.puts(`next:\n`);
-    std.err.puts(`  cd ${targetDir}\n`);
-    const repoName = `${m.election_id}.${m.rule.privacy === "group" ? "efossil" : "fossil"}`;
-    std.err.puts(`  fossil init ${repoName} && fossil open ${repoName}\n`);
-    std.err.puts(`  fossil add manifest.json${m.rule.privacy === "group" ? " keys/" : ""}\n`);
-    std.err.puts(`  fossil ci -m "genesis: ${m.election_id}"\n`);
+    std.err.puts(`election initialized in ${targetDir}/\n`);
+
+    // Auto-invoke Fossil for mode public when fossil is on PATH. Mode group
+    // deliberately stays manual: the .efossil repo file must be created by
+    // the patched fossil-ppv binary (stock Fossil would create it as plain
+    // SQLite, defeating the encryption); SQLCipher does not retroactively
+    // encrypt an existing plaintext DB.
+    const repoExt = m.rule.privacy === "group" ? "efossil" : "fossil";
+    const repoName = `${m.election_id}.${repoExt}`;
+    const canAuto = m.rule.privacy === "public" && hasFossil();
+
+    if (!canAuto) {
+        std.err.puts(`\nnext (run yourself):\n`);
+        std.err.puts(`  cd ${targetDir}\n`);
+        if (m.rule.privacy === "group") {
+            std.err.puts(`  # NOTE: mode group needs the patched fossil-ppv binary, not stock fossil:\n`);
+            std.err.puts(`  fossil-ppv init ${repoName} && fossil-ppv open ${repoName}\n`);
+            std.err.puts(`  fossil-ppv setting clearsign on\n`);
+            std.err.puts(`  fossil-ppv add manifest.json keys/\n`);
+            std.err.puts(`  fossil-ppv ci -m "genesis: ${m.election_id}"\n`);
+        } else {
+            std.err.puts(`  fossil init ${repoName} && fossil open ${repoName}\n`);
+            std.err.puts(`  fossil setting clearsign on\n`);
+            std.err.puts(`  fossil add manifest.json\n`);
+            std.err.puts(`  fossil ci -m "genesis: ${m.election_id}"\n`);
+        }
+        return;
+    }
+
+    std.err.puts(`\nrunning fossil to commit the genesis...\n`);
+    fossilExec(targetDir, ["fossil", "init", repoName]);
+    fossilExec(targetDir, ["fossil", "open", repoName]);
+    fossilExec(targetDir, ["fossil", "setting", "clearsign", "on"]);
+    fossilExec(targetDir, ["fossil", "add", "manifest.json"]);
+    fossilExec(targetDir, ["fossil", "ci", "-m", `genesis: ${m.election_id}`]);
+    std.err.puts(`\ngenesis committed for election "${m.election_id}"\n`);
 }
 
 // ── vote ───────────────────────────────────────────────────────
@@ -293,10 +344,20 @@ function cmdVote(args) {
     writeFileString(ballotPath, JSON.stringify(ballotObj, null, 2) + "\n");
 
     std.err.puts(
-        `wrote ${ballotPath} (${approvals.length} approval${approvals.length === 1 ? "" : "s"})\n\n`
+        `wrote ${ballotPath} (${approvals.length} approval${approvals.length === 1 ? "" : "s"})\n`
     );
-    std.err.puts(`next:\n`);
-    std.err.puts(`  fossil add ${ballotPath} && fossil ci -m "vote: ${chosen.uid || chosen.fingerprint}"\n`);
+
+    if (!hasFossil()) {
+        std.err.puts(`\nnext (fossil not on PATH; run yourself):\n`);
+        std.err.puts(`  fossil add ${ballotPath}\n`);
+        std.err.puts(`  fossil ci -m "vote: ${chosen.uid || chosen.fingerprint}"\n`);
+        return;
+    }
+
+    std.err.puts(`\ncommitting ballot to fossil...\n`);
+    fossilExec(".", ["fossil", "add", ballotPath]);
+    fossilExec(".", ["fossil", "ci", "-m", `vote: ${chosen.uid || chosen.fingerprint}`]);
+    std.err.puts(`\nballot committed\n`);
 }
 
 // ── dispatch ───────────────────────────────────────────────────

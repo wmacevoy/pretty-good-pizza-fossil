@@ -20,8 +20,8 @@ This document captures the ordered sequence of work to reach each milestone. The
 - `lib/ballot.js`: `load`, `validate` (rules 1–5) implemented.
 - `lib/tally.js`: `run` implemented for all three modes (A, B, C), including threshold filter, SHAKE128 stream, BigInt weight computation, and mode-C tie-breaking. Cross-implementation regression fixtures frozen in `test/fixtures/sampling/{mode-c-boundary-tie,mode-a-replacement,mode-b-no-replacement}/`.
 - `bin/ppv tally [dir]` writes `result.json`; `bin/ppv verify [dir]` re-runs and diffs. Round-trip end-to-end tested.
-- `bin/ppv init <manifest.json> [target-dir]` validates the manifest, resolves the convener's gpg key (always-confirm + chooser per threat-model), generates a 256-bit master key K via `openssl rand`, multi-recipient gpg-encrypts to the roster as `keys/master.key.asc` for group mode, copies the manifest in, creates `ballots/`, and prints the follow-up `fossil init`/`add`/`ci` commands. Refuses `rule.privacy="individual"` with a clear error.
-- `bin/ppv vote <option-id> ...` validates approvals against the manifest, resolves the voter's gpg key from the local keyring (chooser when >1 match per threat-model first-open UX), builds the ballot JSON with the correct `manifest_hash`, writes `ballots/<fingerprint>.json`, and prints the `fossil add`/`ci` follow-ups.
+- `bin/ppv init <manifest.json> [target-dir]` validates the manifest, resolves the convener's gpg key (always-confirm + chooser per threat-model), generates a 256-bit master key K via `openssl rand`, multi-recipient gpg-encrypts to the roster as `keys/master.key.asc` for group mode, copies the manifest in, and creates `ballots/`. For mode public with `fossil` on PATH, **auto-invokes** `fossil init` / `open` / `setting clearsign on` / `add manifest.json` / `ci`. Mode group deliberately stays manual (the `.efossil` repo file must be created by the patched `fossil-ppv`, not stock fossil, because SQLCipher cannot retroactively encrypt a plaintext DB). Refuses `rule.privacy="individual"` with a clear error.
+- `bin/ppv vote <option-id> ...` validates approvals against the manifest, resolves the voter's gpg key from the local keyring (chooser when >1 match per threat-model first-open UX), builds the ballot JSON with the correct `manifest_hash`, writes `ballots/<fingerprint>.json`. With `fossil` on PATH, **auto-invokes** `fossil add` / `ci` to commit the ballot (clearsign engaged). Falls back to printed manual instructions when fossil is unavailable.
 - `lib/gpg.js` wraps `gpg --list-secret-keys --with-colons` and multi-recipient `--encrypt --armor` for both subcommands.
 - `build/build-fossil.sh` incorporates the SEE-reuse approach (`--with-see=1`, `src/sqlite3-see.c`); drops `--with-tcl` since the CLI is now standalone.
 - `build/patches/fossil-db-key.patch` written: mode-aware key source (`FOSSIL_PPV_KEY` env var > gpg-decrypt `keys/master.key.asc` > stock prompt under `FOSSIL_PPV_STOCK_PROMPT=1`). Verified to apply cleanly against pinned Fossil 2.28; full compile awaits LibreSSL install.
@@ -29,7 +29,7 @@ This document captures the ordered sequence of work to reach each milestone. The
 
 **Stubbed or missing:**
 - `versions.env` — LibreSSL, sqlcipher-libressl, and QuickJS versions still unpinned.
-- Fossil integration in `bin/ppv init` and `bin/ppv vote` — they currently set up the working directory and print the `fossil init`/`fossil add`/`fossil ci` commands for the user to run. Auto-invoking Fossil is a follow-up.
+- Federated multi-clone scenario test (3 voters, sync, independent verify). Depends on local fossil install + custom Fossil build for any mode-2 test.
 
 ## Milestone 1: First custom Fossil binary
 
