@@ -1,0 +1,35 @@
+{
+  "version": "ppp/1",
+  "election_id": "example-grant",
+  "title": "Example grant election",
+  "description": "Fixture used by tests; not a real election.",
+  "convener": {
+    "name": "Convener",
+    "pgp_fingerprint": "0000000000000000000000000000000000000000"
+  },
+  "voters": [
+    {"name": "Alice", "pgp_fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"name": "Bob",   "pgp_fingerprint": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"},
+    {"name": "Carol", "pgp_fingerprint": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"}
+  ],
+  "options": [
+    {"id": "proj-foo", "title": "Foo Project", "slices": 1, "price": 5000},
+    {"id": "proj-bar", "title": "Bar Project", "slices": 1, "price": 7500},
+    {"id": "proj-baz", "title": "Baz Project", "slices": 1, "price": 10000}
+  ],
+  "rule": {
+    "threshold": {"type": "absolute", "value": 2},
+    "allocation": "B",
+    "budget": 12500,
+    "tie_break": "random"
+  },
+  "schedule": {
+    "voting_opens": "2026-07-01T00:00:00Z",
+    "voting_closes": "2026-07-15T23:59:59Z"
+  },
+  "seed": {
+    "protocol": "nist-beacon",
+    "pulse_url": "https://beacon.nist.gov/beacon/2.0/pulse/time/2026-07-16T00:00:00Z",
+    "pulse_timestamp": "2026-07-16T00:00:00Z"
+  }
+}
