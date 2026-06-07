@@ -38,23 +38,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || null }}
     steps:
-      # Don't ask checkout to pull submodules yet — git may not exist inside
-      # the Linux container; we install it as part of `deps` and then init
-      # the submodules ourselves.
+      # Install git+ca-certificates inside the Linux container BEFORE checkout.
+      # Without git in PATH at checkout time, actions/checkout falls back to a
+      # REST tarball download (no .git directory), and submodule init then
+      # fails with "not a git repository". On macOS this step is a no-op.
+      - name: Pre-install git (container only)
+        if: ${{ matrix.container != '' }}
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install dependencies
         run: ${{ matrix.deps }}
-
-      - name: Mark workspace as safe for git
-        # Inside a container, the workspace was populated by actions/checkout
-        # running as a different user; without this, git refuses to operate
-        # on it with "detected dubious ownership in repository".
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Initialize submodules
-        run: git submodule update --init --recursive
 
       - name: Pre-warm gpg-agent
         run: gpgconf --launch all || true
