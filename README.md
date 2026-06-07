@@ -1,6 +1,6 @@
-# Pretty Good Pizza — Fossil implementation
+# Pizza Party Voting — Fossil implementation
 
-Reference implementation of the [Pretty Good Pizza voting mechanism](../pretty-good-pizza) backed by Fossil.
+Reference implementation of the [Pizza Party Voting mechanism](../pizza-party-vote) backed by Fossil.
 
 ## Status
 
@@ -14,7 +14,7 @@ Each election lives in a Fossil repository: the genesis commit is a signed elect
 
 | What | Where |
 |---|---|
-| Voting mechanism spec | [`../pretty-good-pizza/README.md`](../pretty-good-pizza/README.md) |
+| Voting mechanism spec | [`../pizza-party-vote/README.md`](../pizza-party-vote/README.md) |
 | Election manifest format | [`docs/manifest-schema.md`](docs/manifest-schema.md) |
 | Ballot file format | [`docs/ballot-schema.md`](docs/ballot-schema.md) |
 | Canonical JSON (for `manifest_hash`) | [`docs/canonical-json.md`](docs/canonical-json.md) |

@@ -5,7 +5,7 @@ This document captures the ordered sequence of work to reach each milestone. The
 ## Current state (2026-06-06)
 
 **Pinned and ready:**
-- Algorithm spec (sibling `../pretty-good-pizza` repo).
+- Algorithm spec (sibling `../pizza-party-vote` repo).
 - Schemas: `manifest-schema.md`, `ballot-schema.md`, `canonical-json.md`, `deterministic-sampling.md`. All four are normative.
 - Threat model: three trust modes; modes 1 (public) and 2 (group) fully specified; mode 3 deferred. `Status: Pinned`.
 - Build skeleton: `build/build-fossil.sh` validates inputs, sources `versions.env`, dispatches build sequence. Bash-parses cleanly.

@@ -12,7 +12,7 @@
 +** or NULL on any failure. Caller frees with fossil_free() after zeroizing.
 +**
 +** This is the Pizza Party Voting hook into Fossil's SEE encryption
-+** scaffolding. See docs/threat-model.md in the pretty-good-pizza-fossil
++** scaffolding. See docs/threat-model.md in the pizza-party-vote-fossil
 +** repo for the full design.
 +*/
 +#if USE_SEE

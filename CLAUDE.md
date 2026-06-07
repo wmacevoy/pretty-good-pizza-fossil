@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Fossil-based reference implementation of the Pizza Party Voting (ppv) mechanism. The mechanism spec lives in the sibling `pretty-good-pizza` repo. **Always cross-check tally logic against [`../pretty-good-pizza/README.md`](../pretty-good-pizza/README.md) and [`../pretty-good-pizza/CLAUDE.md`](../pretty-good-pizza/CLAUDE.md)** before changing the algorithm. The spec is the source of truth; this repo implements it.
+Fossil-based reference implementation of the Pizza Party Voting (ppv) mechanism. The mechanism spec lives in the sibling `pizza-party-vote` repo. **Always cross-check tally logic against [`../pizza-party-vote/README.md`](../pizza-party-vote/README.md) and [`../pizza-party-vote/CLAUDE.md`](../pizza-party-vote/CLAUDE.md)** before changing the algorithm. The spec is the source of truth; this repo implements it.
 
 The protocol abbreviation is **ppv** (pizza party voting). An earlier iteration used `ppp`; that was changed to avoid semantic collision with PGP, which the system uses heavily for identity and signing.
 
