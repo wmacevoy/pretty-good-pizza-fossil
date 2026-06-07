@@ -97,27 +97,22 @@ The CLI:
 
 She now has `daves-party/daves-surprise-party.fossil` — a Fossil repo containing the signed genesis commit.
 
-## Step 3 — Bob and Carol clone the repo
+## Step 3 — Bob and Carol get the repo
 
-Alice serves the repo via Fossil's built-in server:
+Alice sends Bob and Carol the `daves-surprise-party.fossil` file. The realistic options:
+
+- **Shared cloud drive** (iCloud, Dropbox, Syncthing): copy `daves-surprise-party.fossil` to a folder all three have access to. Each opens a working copy pointing at the shared file.
+- **One-time file transfer** (`scp`, AirDrop, USB stick, email): each person gets their own copy of the file.
+- **Fossil HTTP server with user accounts**: Alice runs `fossil server --port 8080 daves-surprise-party.fossil`, creates accounts for Bob and Carol with `fossil user new bob "Bob" bobpass` and `fossil user capabilities bob v`, and they clone via `fossil clone http://bob:bobpass@alices-ip:8080/`. This is what a homeserver-style deployment uses, but it adds setup steps that distract from the protocol. See Fossil's docs for details.
+
+The walkthrough below assumes each voter has their own copy of `daves-surprise-party.fossil`. Bob opens his:
 
 ```
-$ cd daves-party
-$ fossil server --port 8080
-```
-
-She gives Bob and Carol the URL (over whatever channel they're using — text, signal, in person). They clone:
-
-```
-# Bob, from his own machine:
-$ fossil clone http://alices-ip:8080/ daves-surprise-party.fossil
 $ mkdir daves-party && cd daves-party
 $ fossil open ../daves-surprise-party.fossil
 ```
 
 Carol does the same. They each now have a working copy with `manifest.json` visible.
-
-(Strictly: they could also clone from each other once anyone has the repo — Fossil's sync is peer-to-peer. Alice's machine doesn't have to stay online forever; she just has to be reachable while at least one other person clones.)
 
 ## Step 4 — Each of them votes
 
@@ -135,7 +130,7 @@ The CLI:
 3. Builds the ballot JSON: `{version, election_id, manifest_hash, voter_fingerprint, approvals: [...]}`.
 4. Writes `ballots/B0B0B0B0...B0B0B0B0.json`.
 5. Auto-invokes `fossil add` and `fossil ci`. The commit is clearsigned with Bob's PGP key.
-6. Syncs back to Alice's server.
+6. If a sync URL is configured, attempts to push back to it. Otherwise the ballot lives in Bob's local `.fossil` until aggregated (see step 5).
 
 Carol approves fewer things:
 
@@ -149,7 +144,9 @@ Alice — who got the deal on streamers — approves a lot:
 $ ppv vote balloons streamers banner fairy-lights
 ```
 
-After all three have voted, each of their working copies has all three ballot files (assuming they `fossil sync` to pull each other's commits).
+After all three have voted, each voter's working copy has their own ballot file. They now need to pool everyone's ballots into a single tally-able repo. With separate `.fossil` files this is a one-time aggregation: Bob and Carol send their `ballots/*.json` files to Alice (any channel — email, shared folder, etc.), Alice drops them into her `daves-party/ballots/`, then runs `fossil add` and `fossil ci` on them. After that she resends the merged `.fossil` to Bob and Carol so they can verify.
+
+With a Fossil HTTP server + user accounts (the homeserver-style path mentioned above) this aggregation happens automatically via `fossil sync`. The voting protocol doesn't care which transport you use; it only cares that everyone ends up with the same set of public ballot files.
 
 ## Step 5 — Voting closes; somebody runs the tally
 
@@ -185,12 +182,14 @@ wrote ./result.json: mode B, 3 selected, 5 unspent
 
 ## Step 6 — Everyone verifies
 
+Alice sends the merged `.fossil` (now containing all three ballots and the `result.json` she just produced) back to Bob and Carol. They each refresh their working copy and run:
+
 ```
 $ ppv verify
 OK: ./result.json matches recomputed tally
 ```
 
-Bob runs `ppv verify` from his clone. Carol runs it from hers. Alice runs it from hers. All three see `OK`. The decision is settled and checkable: nobody had to trust the person who ran the tally — everyone can re-run from the same public inputs.
+Bob runs `ppv verify` from his clone with the same `seed.hex`. Carol runs it from hers. All three see `OK`. The decision is settled and checkable: nobody had to trust the person who ran the tally — everyone can re-run from the same public inputs.
 
 The shopping list: banner, streamers, balloons. $33 of $50 spent. $17 left over. Dave is going to be surprised.
 
