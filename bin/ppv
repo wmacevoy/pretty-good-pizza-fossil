@@ -280,10 +280,13 @@ function cmdInit(args) {
 
     std.err.puts(`\nrunning fossil to commit the genesis...\n`);
     fossilExec(targetDir, ["fossil", "init", repoName]);
-    fossilExec(targetDir, ["fossil", "open", repoName]);
+    // `--keep` because manifest.json (and possibly keys/) are already in
+    // the target dir from prep steps above; without it, fossil refuses to
+    // open into a non-empty checkout.
+    fossilExec(targetDir, ["fossil", "open", "--keep", repoName]);
     fossilExec(targetDir, ["fossil", "setting", "clearsign", "on"]);
     fossilExec(targetDir, ["fossil", "add", "manifest.json"]);
-    fossilExec(targetDir, ["fossil", "ci", "-m", `genesis: ${m.election_id}`]);
+    fossilExec(targetDir, ["fossil", "ci", "--no-verify-comment", "-m", `genesis: ${m.election_id}`]);
     std.err.puts(`\ngenesis committed for election "${m.election_id}"\n`);
 }
 
@@ -356,7 +359,7 @@ function cmdVote(args) {
 
     std.err.puts(`\ncommitting ballot to fossil...\n`);
     fossilExec(".", ["fossil", "add", ballotPath]);
-    fossilExec(".", ["fossil", "ci", "-m", `vote: ${chosen.uid || chosen.fingerprint}`]);
+    fossilExec(".", ["fossil", "ci", "--no-verify-comment", "-m", `vote: ${chosen.uid || chosen.fingerprint}`]);
     std.err.puts(`\nballot committed\n`);
 }
 

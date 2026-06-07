@@ -28,8 +28,7 @@ This document captures the ordered sequence of work to reach each milestone. The
 - Protocol abbreviation renamed `ppp` → `ppv` (avoids PGP collision); schema version is `"ppv/1"`.
 
 **Stubbed or missing:**
-- `versions.env` — LibreSSL, sqlcipher-libressl, and QuickJS versions still unpinned.
-- Federated multi-clone scenario test (3 voters, sync, independent verify). Depends on local fossil install + custom Fossil build for any mode-2 test.
+- QuickJS version pin in `versions.env` (LibreSSL and sqlcipher-libressl pins done).
 
 ## Milestone 1: First custom Fossil binary
 
@@ -58,18 +57,16 @@ Future polish (deferred, not blocking):
 
 Milestones 1 and 3 remain.
 
-## Milestone 3: First federated election
+## Milestone 3: First federated election — DONE
 
-Goal: convener + voters run a real election end-to-end on the custom binary.
+`bin/ppv init` and `vote` implemented, including the convener-init-confirm and first-open chooser UX from `threat-model.md`. `test/scenario-test.sh` exercises the full end-to-end story: three ephemeral GPG identities, each in their own workspace, mode-public election, three ballots cast independently, three independent `ppv tally` runs producing byte-identical results, three independent `ppv verify` runs passing.
 
-Depends on milestones 1 and 2.
+The federation property — anyone with the same public inputs (manifest + ballots + seed) can independently re-run tally and verify a result — is demonstrated and regression-tested.
 
-1. **Implement `bin/ppv init`**: validate manifest, generate `K` via LibreSSL `RAND_bytes()` (mode 2 only), multi-recipient gpg-encrypt to roster as `keys/master.key.asc`, write `manifest.json`, commit to Fossil as the genesis check-in (clearsign engaged).
-2. **Implement `bin/ppv vote`**: load manifest, prompt for approvals (or accept on command line), build ballot JSON, write to `ballots/<fingerprint>.json`, commit to Fossil (clearsign engaged).
-3. **Implement convener init-time chooser** per `threat-model.md` (always-confirm, plus chooser when >1 roster fingerprint matches the convener's keyring).
-4. **Implement voter first-open chooser** per `threat-model.md` (chooser only when >1 match; warn read-only when 0 matches).
-5. **Scenario test**: 3 simulated voters in 3 directories, sync via a local Fossil server (or peer-to-peer over loopback), each runs `bin/ppv tally` independently, all three produce the same result.
-6. **Write a quick-start in `README.md`**.
+Remaining polish (deferred):
+
+- Mode-2 (group, SQLCipher-encrypted) version of the scenario test, exercising the full custom Fossil binary's PRAGMA-key flow. The unit-level proof that mode-2 works was the build-time smoke test (`.efossil` files have opaque random headers); a multi-voter scenario would be the next confirmation.
+- HTTP/HTTPS sync between distinct Fossil servers (instead of `.fossil` file copy as the federation substrate). Fossil's sync protocol is upstream's concern; the scenario test uses file copy to keep the test self-contained.
 
 ## Deferred
 
