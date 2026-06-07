@@ -73,6 +73,7 @@ Depends on milestones 1 and 2.
 
 ## Deferred
 
+- **ppv homeserver** (federated Pi Zero 2 W per user, browser PWA, WebSocket sync, restic-based RAID-1-across-peers backup). Sketch in `docs/future-homeserver.md`. Operational polish on top of the voting protocol; not blocking v1.
 - **Phase 3 / Mode 3 (individual)**: per-voter SQLCipher keys, no key sharing. For when peers do not mutually trust. Out of v1 scope.
 - **CI matrix mirroring sqlcipher-libressl's 5 platforms**: debian-glibc-x64, debian-glibc-arm64, alpine-musl-x64, macos-arm64, macos-x64. Adds reproducible builds and release artifacts. Worth doing after milestone 3 passes locally.
 - **Equivocation detection at tally time**: voter committing two contradictory ballots. Default in threat-model is "reject voter entirely and surface for convener review" — needs to be specified concretely in `docs/` before tally code enforces it.
