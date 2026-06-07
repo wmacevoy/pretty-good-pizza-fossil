@@ -1,0 +1,138 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish under (e.g. v0.1.0). Must already exist.'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-package:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-glibc-x86_64
+            os: ubuntu-latest
+            container: debian:bookworm
+            deps: |
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake tcl tcl-dev autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
+          - label: linux-glibc-arm64
+            os: ubuntu-24.04-arm
+            container: debian:bookworm
+            deps: |
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake tcl tcl-dev autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
+          - label: macos-arm64
+            os: macos-latest
+            container: ""
+            deps: |
+              brew install cmake tcl-tk autoconf automake pkg-config gnupg
+          - label: macos-x86_64
+            os: macos-13
+            container: ""
+            deps: |
+              brew install cmake tcl-tk autoconf automake pkg-config gnupg
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || null }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install dependencies
+        run: ${{ matrix.deps }}
+
+      - name: Initialize submodules
+        run: git submodule update --init --recursive
+
+      - name: Pre-warm gpg-agent
+        run: gpgconf --launch all || true
+
+      - name: Build fossil-ppv
+        run: ./build/build-fossil.sh
+
+      - name: Build qjs-ppv
+        run: ./build/build-qjs.sh
+
+      - name: Install binaries on PATH
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$PWD/build/dist/fossil-ppv" "$HOME/.local/bin/fossil"
+          ln -sf "$PWD/build/dist/qjs-ppv"    "$HOME/.local/bin/qjs-ppv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Same tests the build-test workflow runs on every push. The release
+      # artifacts are bit-identical to what just got tested.
+      - name: Run unit tests
+        run: ./test/run-tests.js
+
+      - name: Run federated scenario test
+        run: ./test/scenario-test.sh
+
+      - name: Package artifact
+        id: package
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          ARCHIVE="ppv-${TAG}-${{ matrix.label }}.tar.gz"
+          tar -C build/dist -czf "$ARCHIVE" fossil-ppv qjs-ppv
+          ls -lh "$ARCHIVE"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ppv-${{ matrix.label }}
+          path: ${{ steps.package.outputs.archive }}
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    needs: build-test-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release files + checksums
+        run: |
+          mkdir -p release
+          find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
+          # Source tarball: git archive of the tag, so verifiers can rebuild.
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          git archive --format=tar.gz --prefix="pizza-party-vote-fossil-${TAG}/" -o "release/source-${TAG}.tar.gz" HEAD
+          cd release
+          shasum -a 256 *.tar.gz > SHA256SUMS
+          ls -la
+          echo
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: release/*
+          generate_release_notes: true
+          draft: true
+          prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') }}

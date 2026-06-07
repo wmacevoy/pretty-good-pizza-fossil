@@ -1,0 +1,78 @@
+name: build-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-glibc-x86_64
+            os: ubuntu-latest
+            container: debian:bookworm
+            deps: |
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake tcl tcl-dev autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
+          - label: linux-glibc-arm64
+            os: ubuntu-24.04-arm
+            container: debian:bookworm
+            deps: |
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential cmake tcl tcl-dev autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
+          - label: macos-arm64
+            os: macos-latest
+            container: ""
+            deps: |
+              brew install cmake tcl-tk autoconf automake pkg-config gnupg
+          - label: macos-x86_64
+            os: macos-13
+            container: ""
+            deps: |
+              brew install cmake tcl-tk autoconf automake pkg-config gnupg
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container || null }}
+    steps:
+      # Don't ask checkout to pull submodules yet — git may not exist inside
+      # the Linux container; we install it as part of `deps` and then init
+      # the submodules ourselves.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: ${{ matrix.deps }}
+
+      - name: Initialize submodules
+        run: git submodule update --init --recursive
+
+      - name: Pre-warm gpg-agent
+        run: gpgconf --launch all || true
+
+      - name: Build fossil-ppv
+        run: ./build/build-fossil.sh
+
+      - name: Build qjs-ppv
+        run: ./build/build-qjs.sh
+
+      - name: Install binaries on PATH
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$PWD/build/dist/fossil-ppv" "$HOME/.local/bin/fossil"
+          ln -sf "$PWD/build/dist/qjs-ppv"    "$HOME/.local/bin/qjs-ppv"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run unit tests
+        run: ./test/run-tests.js
+
+      - name: Run federated scenario test
+        run: ./test/scenario-test.sh
