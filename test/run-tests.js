@@ -1,4 +1,4 @@
-#!/usr/bin/env qjs
+#!/usr/bin/env qjs-ppv
 // Test harness. Add real cases as implementation lands.
 
 import * as std from "std";

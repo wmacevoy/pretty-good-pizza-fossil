@@ -29,7 +29,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── tooling: put built fossil-ppv on PATH as 'fossil' ───────────
+# ── tooling: put built binaries on PATH ─────────────────────────
 mkdir -p "$TMP/bin"
 if [ -x "$REPO/build/dist/fossil-ppv" ]; then
     ln -sf "$REPO/build/dist/fossil-ppv" "$TMP/bin/fossil"
@@ -39,8 +39,17 @@ else
     echo "ERR: no fossil binary available (neither build/dist/fossil-ppv nor system fossil)" >&2
     exit 1
 fi
+# qjs-ppv hosts the ppv-crypto native module that bin/ppv needs. The shebang
+# on bin/ppv resolves to qjs-ppv via PATH.
+if [ -x "$REPO/build/dist/qjs-ppv" ]; then
+    ln -sf "$REPO/build/dist/qjs-ppv" "$TMP/bin/qjs-ppv"
+else
+    echo "ERR: build/dist/qjs-ppv missing; run build/build-qjs.sh first" >&2
+    exit 1
+fi
 export PATH="$TMP/bin:$PATH"
 echo "==> using fossil: $(command -v fossil) ($(fossil version 2>&1 | head -1))"
+echo "==> using qjs-ppv: $(command -v qjs-ppv)"
 
 # ── 3 ephemeral GPG identities ──────────────────────────────────
 echo "==> generating 3 ephemeral GPG keys"

@@ -1,15 +1,14 @@
 # Install
 
-Two paths, depending on which trust mode you want to support:
+Two custom binaries to build, one system tool to install:
 
-- **Mode-1 (public) only — stock Fossil works.** Sufficient for transparent elections where the repo content is meant to be world-readable. The fastest install path.
-- **Mode-2 (group, encrypted) — needs the custom `fossil-ppv` binary.** Required if you want the election repo encrypted at rest with SQLCipher.
+| Binary | Built by | What it does |
+|---|---|---|
+| `fossil-ppv` | `build/build-fossil.sh` | Fossil 2.28 + SQLCipher + LibreSSL + the mode-aware key patch. Used by `ppv` for mode-2 (encrypted) repos. Mode-1 elections work with stock Fossil too. |
+| `qjs-ppv` | `build/build-qjs.sh` | QuickJS + the `ppv-crypto` native module (SHA3-256 from LibreSSL EVP, SHAKE128 from vendored Keccak, RAND_bytes for randomness). Runs `bin/ppv`. |
+| `gpg` | system | Voter identity and signing. Mode-2 also uses it to wrap/unwrap the SQLCipher master key. |
 
-Either way you also need:
-
-- `qjs` (QuickJS) — runs the CLI.
-- `openssl` — SHA3-256 and SHAKE128 (almost certainly already installed on your system).
-- `gpg` (GnuPG 2.x) — clearsigning ballots, identity, and the mode-2 key wrap.
+After install: nothing else needed on PATH. No `openssl`, no `qjs`, no Tcl at runtime.
 
 ## Get the source
 
@@ -20,100 +19,72 @@ cd pizza-party-vote-fossil
 
 `--recurse-submodules` populates `vendor/fossil`, `vendor/sqlcipher-libressl`, and `vendor/quickjs`. If you forgot, run `git submodule update --init --recursive` after cloning.
 
-## Quick path — mode 1 only
+## Build-time tools
 
-Install the runtime dependencies via your package manager.
+The two `./build/build-*.sh` scripts need these to be on PATH:
+
+- A C compiler (`gcc` or `clang`)
+- `make`
+- `cmake` (used to build LibreSSL from the vendored release tarball)
+- `tclsh` / `tcl-tk` (used by SQLCipher's `make sqlite3.c` amalgamation step — **build-only**, never needed at runtime)
+- `autoconf`, `automake`, `pkg-config` (for SQLCipher's `configure`)
+- `patch` (for applying our two small patches to Fossil and QuickJS during the build)
 
 **macOS (Homebrew):**
 
 ```
-brew install fossil qjs openssl gnupg
+brew install cmake tcl-tk autoconf automake pkg-config gnupg
+xcode-select --install   # if you haven't already; provides cc and make
 ```
 
 **Debian/Ubuntu:**
 
 ```
-sudo apt install fossil openssl gnupg
-# qjs may not be packaged; either build vendor/quickjs (see below) or grab
-# a prebuilt binary from upstream releases.
+sudo apt install build-essential cmake tcl tcl-dev \
+                 autoconf automake pkg-config patch gnupg
 ```
 
-**Verify:**
-
-```
-./test/run-tests.js
-```
-
-Expect `15 passed, 0 failed`. The CLI is now usable for mode-1 elections via `bin/ppv {init,vote,tally,verify}`.
-
-## Full path — mode 2 (encrypted)
-
-You also need to build the custom Fossil binary that wires SQLCipher into Fossil's `db_open` path with the mode-aware key source.
-
-**Prerequisites for the build itself** (in addition to the runtime deps above):
-
-- A C compiler (`gcc` or `clang`)
-- `make`
-- `cmake` (used to build LibreSSL from the vendored tarball)
-- `tcl` / `tclsh` (used by SQLCipher's amalgamation step)
-- `autoconf`, `automake`, `pkg-config` (for SQLCipher's configure)
-
-**macOS:** these come with Xcode Command Line Tools plus `brew install cmake tcl-tk autoconf automake pkg-config`.
-
-**Debian/Ubuntu:**
-
-```
-sudo apt install build-essential cmake tcl tcl-dev autoconf automake pkg-config
-```
-
-**Build:**
+## Build
 
 ```
 ./build/build-fossil.sh
+./build/build-qjs.sh
 ```
 
-First run takes 5–10 minutes (most of it building LibreSSL from the vendored source). Subsequent runs are cached and finish in under a minute.
+First run takes 5–10 minutes (most of it building LibreSSL from the vendored source). Subsequent runs are cached.
 
-Output: `build/dist/fossil-ppv` (a ~7MB self-contained binary).
+Outputs:
 
-**Put it on PATH as `fossil`** (so `bin/ppv` finds it):
+- `build/dist/fossil-ppv` (~7 MB) — the custom Fossil binary.
+- `build/dist/qjs-ppv` (~2.3 MB) — the custom QuickJS binary with `ppv-crypto` linked in.
+
+## Put them on PATH
+
+`bin/ppv` has `#!/usr/bin/env qjs-ppv` at its shebang, so `qjs-ppv` needs to be on PATH. The simplest:
 
 ```
+mkdir -p ~/.local/bin
+ln -sf "$PWD/build/dist/qjs-ppv" ~/.local/bin/qjs-ppv
+ln -sf "$PWD/build/dist/fossil-ppv" ~/.local/bin/fossil-ppv
+# also expose fossil-ppv as 'fossil' if you don't have system fossil installed:
 ln -sf "$PWD/build/dist/fossil-ppv" ~/.local/bin/fossil
-# or:
-export PATH="$PWD/build/dist:$PATH"
-# (and rename the symlink to 'fossil' if you want both names)
 ```
 
-If you have system `fossil` installed and want both, the simplest is to put `build/dist/fossil-ppv` on PATH and use it explicitly as `fossil-ppv` for ppv repos; modify `bin/ppv` to call `fossil-ppv` instead of `fossil` if you prefer that.
+Adjust `~/.local/bin` to wherever you keep user binaries; just make sure it's on PATH.
 
-**Verify the encrypted path works:**
-
-```
-./build/dist/fossil-ppv version
-# Should report: This is fossil version 2.28 ...
-
-tmp=$(mktemp -d)
-FOSSIL_PPV_KEY="testkey" ./build/dist/fossil-ppv init $tmp/test.efossil
-head -c 16 $tmp/test.efossil | xxd
-# Should NOT start with "SQLite format 3" — should be random bytes.
-# That confirms SQLCipher is engaged.
-rm -rf $tmp
-```
-
-## Verify the full federated story
-
-The end-to-end test exercises three ephemeral GPG identities, the full
-`init` → `vote` → `tally` → `verify` flow, and confirms that three independent tally runs produce byte-identical results.
+## Verify
 
 ```
-./test/scenario-test.sh
+./build/dist/fossil-ppv version          # custom Fossil reports 2.28
+./test/run-tests.js                       # 15 unit tests
+./test/scenario-test.sh                   # full federated three-voter scenario
 ```
 
-Expect `PASS: three independent tallies match byte-for-byte and verify succeeds in all three workspaces.` followed by a JSON result.
+Both test suites should report `passed`. Common failure modes:
 
-If you only built mode-1, this still works (the scenario uses public-mode elections).
+- `Could not find name 'ppv-crypto'` in the unit suite → `qjs-ppv` isn't on PATH yet, so `bin/ppv`'s shebang found a stock `qjs` that doesn't have our native module. Re-do the symlink step.
+- `no fossil binary available` from the scenario test → the `fossil` symlink (pointing at `fossil-ppv`) is missing.
 
 ## What's next
 
-Once installed, walk through [`docs/walkthrough.md`](walkthrough.md) — three friends use ppv to plan a surprise party.
+Once installed, walk through [`docs/walkthrough.md`](walkthrough.md) — three friends use ppv to plan a surprise party. End-to-end worked example with commands that match the install you just did.

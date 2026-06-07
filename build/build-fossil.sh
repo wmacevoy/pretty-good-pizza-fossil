@@ -86,6 +86,11 @@ if [ ! -f "$LIBRESSL_PREFIX/lib/libcrypto.a" ] || [ ! -f "$LIBRESSL_PREFIX/lib/l
         cd "$extract_dir"
         mkdir -p build
         cd build
+        # Investigated turning on LIBRESSL_APPS to get a self-hosted openssl
+        # binary. LibreSSL's openssl CLI supports SHA-3-256 via `dgst -sha3-256`
+        # but does NOT expose SHAKE128 in a usable form, so it can't replace
+        # the system openssl for the runtime. Kept APPS off; runtime needs a
+        # modern openssl (Homebrew's, conda's, distro package) on PATH.
         cmake .. -DCMAKE_INSTALL_PREFIX="$LIBRESSL_PREFIX" \
             -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_BUILD_TYPE=Release

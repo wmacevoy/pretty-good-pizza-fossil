@@ -1,4 +1,4 @@
-#!/usr/bin/env qjs
+#!/usr/bin/env qjs-ppv
 // Pizza Party Voting CLI.
 // Subcommands: init, vote, tally, verify.
 
