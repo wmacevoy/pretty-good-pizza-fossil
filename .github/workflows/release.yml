@@ -25,21 +25,21 @@ jobs:
             deps: |
               apt-get update
               apt-get install -y --no-install-recommends \
-                build-essential cmake tcl tcl-dev autoconf automake \
-                pkg-config gnupg patch curl ca-certificates git python3
+                build-essential cmake autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
           - label: linux-glibc-arm64
             os: ubuntu-24.04-arm
             container: debian:bookworm
             deps: |
               apt-get update
               apt-get install -y --no-install-recommends \
-                build-essential cmake tcl tcl-dev autoconf automake \
-                pkg-config gnupg patch curl ca-certificates git python3
+                build-essential cmake autoconf automake \
+                pkg-config gnupg patch curl ca-certificates git
           - label: macos-arm64
             os: macos-latest
             container: ""
             deps: |
-              brew install cmake tcl-tk autoconf automake pkg-config gnupg
+              brew install cmake autoconf automake pkg-config gnupg
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || null }}
     steps:

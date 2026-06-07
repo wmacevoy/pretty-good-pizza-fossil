@@ -150,20 +150,25 @@ cp "$FOSSIL_SRC/extsrc/shell.c" "$FOSSIL_SRC/extsrc/shell-see.c"
 # requires 1 or 2. SEE_FLAGS.1 is appended AFTER SQLITE_OPTIONS on the compile
 # line, so the last -D wins. SQLCipher also requires SQLITE_TEMP_STORE=2 and
 # the EXTRA_INIT/SHUTDOWN hooks.
-python3 - "$FOSSIL_SRC/src/main.mk" <<'PY'
-import re, sys
-p = sys.argv[1]
-src = open(p).read()
-old = 'SEE_FLAGS.1 = -DSQLITE_HAS_CODEC -DSQLITE_SHELL_DBKEY_PROC=fossil_key'
-new = ('SEE_FLAGS.1 = -DSQLITE_HAS_CODEC -DSQLITE_SHELL_DBKEY_PROC=fossil_key '
-       '-DSQLITE_THREADSAFE=1 -DSQLITE_TEMP_STORE=2 '
-       '-DSQLITE_EXTRA_INIT=sqlcipher_extra_init '
-       '-DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown')
-if old not in src:
-    print("ERR: SEE_FLAGS.1 line not found verbatim in main.mk; check FOSSIL_REF", file=sys.stderr)
-    sys.exit(1)
-open(p, 'w').write(src.replace(old, new, 1))
-PY
+MAINMK="$FOSSIL_SRC/src/main.mk"
+SEE_OLD='SEE_FLAGS.1 = -DSQLITE_HAS_CODEC -DSQLITE_SHELL_DBKEY_PROC=fossil_key'
+SEE_NEW="${SEE_OLD} -DSQLITE_THREADSAFE=1 -DSQLITE_TEMP_STORE=2 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown"
+if ! grep -qF "$SEE_OLD" "$MAINMK"; then
+    echo "ERR: SEE_FLAGS.1 line not found verbatim in main.mk; check FOSSIL_REF" >&2
+    exit 1
+fi
+# In-place edit. `awk` treats sub's first arg as a regex and its second as
+# a replacement template (with & specials); use literal-string substring math
+# instead so neither dot/dollar in old nor ampersand/backslash in new can bite.
+awk -v old="$SEE_OLD" -v new="$SEE_NEW" '
+    !done {
+        i = index($0, old)
+        if (i > 0) {
+            $0 = substr($0, 1, i - 1) new substr($0, i + length(old))
+            done = 1
+        }
+    } { print }
+' "$MAINMK" > "$MAINMK.tmp" && mv "$MAINMK.tmp" "$MAINMK"
 
 # patches/fossil-db-key.patch wires the mode-aware key source into Fossil's
 # existing SEE scaffolding (db_maybe_obtain_encryption_key in src/db.c):

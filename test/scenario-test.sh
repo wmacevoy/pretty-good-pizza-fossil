@@ -17,6 +17,9 @@ set -euo pipefail
 #     and the gpg-encrypted master key — covered by build smoke tests).
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
+# In bare container images (no /etc/passwd entry for uid 0 or with $USER unset)
+# `fossil init` aborts with "cannot determine user". Fill in a sensible value.
+export USER="${USER:-$(id -un 2>/dev/null || echo ppv-tester)}"
 # Use /tmp directly: gpg-agent's UNIX socket path must fit in ~108 bytes,
 # and macOS's default /var/folders/<long>/T/ blows that budget.
 TMP=$(TMPDIR=/tmp mktemp -d /tmp/ppv-XXXXXX)
