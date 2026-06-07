@@ -16,4 +16,5 @@ test/scratch/
 
 # Build artifacts
 build/dist/
-vendor/libressl/build-out/
+vendor/libressl-cache/
+vendor/libressl-build-out/

@@ -16,7 +16,7 @@ git submodule update --init --recursive
 |---|---|---|---|
 | `vendor/fossil` | drhsqlite/fossil-mirror | `1573b8e6` (version-2.28) | Source for the custom Fossil binary |
 | `vendor/sqlcipher-libressl` | wmacevoy/sqlcipher-libressl | `0a6386e0` | SQLCipher amalgamation source (LibreSSL-patched fork) |
-| `vendor/libressl` | libressl/portable | `4554168c` (v4.2.1) | Built locally into `vendor/libressl/build-out/` |
+| LibreSSL (no submodule) | github releases | `v4.2.1` tarball, SHA256 `6d5c2f58…` | Downloaded + built locally into `vendor/libressl-build-out/` on first run (matches sqlcipher-libressl CI's CMake recipe) |
 | `vendor/quickjs` | bellard/quickjs | `3d5e064e` | CLI runtime; build with `(cd vendor/quickjs && make)` |
 
 Pin metadata (`*_REF`, version strings, release dates) lives in `versions.env`, which `build-fossil.sh` sources.
@@ -45,8 +45,8 @@ All have sensible vendor-path defaults; override only for iterative work against
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LIBRESSL_SRC` | `vendor/libressl` | LibreSSL source tree |
-| `LIBRESSL_PREFIX` | `vendor/libressl/build-out` | LibreSSL install prefix (built on first run) |
+| `LIBRESSL_PREFIX` | `vendor/libressl-build-out` | LibreSSL install prefix (built on first run from the pinned tarball) |
+| `LIBRESSL_CACHE` | `vendor/libressl-cache` | Where the downloaded tarball is kept between runs |
 | `SQLCIPHER_DIR` | `vendor/sqlcipher-libressl` | sqlcipher-libressl checkout |
 | `FOSSIL_SRC` | `vendor/fossil` | Fossil source checkout |
 | `FOSSIL_REF` | from `versions.env` | Expected git ref of `FOSSIL_SRC`; verified before build |

@@ -39,8 +39,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/dist}"
 #   FOSSIL_SRC=$HOME/work/fossil-trunk ./build/build-fossil.sh
 : "${FOSSIL_SRC:=$REPO_ROOT/vendor/fossil}"
 : "${SQLCIPHER_DIR:=$REPO_ROOT/vendor/sqlcipher-libressl}"
-: "${LIBRESSL_SRC:=$REPO_ROOT/vendor/libressl}"
-: "${LIBRESSL_PREFIX:=$REPO_ROOT/vendor/libressl/build-out}"
+: "${LIBRESSL_PREFIX:=$REPO_ROOT/vendor/libressl-build-out}"
+: "${LIBRESSL_CACHE:=$REPO_ROOT/vendor/libressl-cache}"
 
 # Parallelism
 if [ -z "${JOBS:-}" ]; then
@@ -53,16 +53,42 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-# ── Step 0: Build LibreSSL from vendor source if not already built ──
+# ── Step 0: Download + build LibreSSL if not already built ──────
+# Uses the official GitHub release tarball with pinned SHA256 (libressl/
+# portable's git tree is build glue around OpenBSD sources it doesn't
+# carry; the release tarballs are the actual source distribution).
+# Same approach sqlcipher-libressl uses in CI.
 if [ ! -f "$LIBRESSL_PREFIX/lib/libcrypto.a" ] || [ ! -f "$LIBRESSL_PREFIX/lib/libssl.a" ]; then
-    echo "==> Building LibreSSL $LIBRESSL_VERSION from $LIBRESSL_SRC"
-    [ -d "$LIBRESSL_SRC" ] || { echo "ERR: LIBRESSL_SRC not a directory: $LIBRESSL_SRC (did you 'git submodule update --init'?)"; exit 1; }
+    : "${LIBRESSL_TARBALL_URL:?Set LIBRESSL_TARBALL_URL (see versions.env)}"
+    : "${LIBRESSL_TARBALL_SHA256:?Set LIBRESSL_TARBALL_SHA256 (see versions.env)}"
+    command -v cmake >/dev/null 2>&1 || { echo "ERR: cmake is required to build LibreSSL"; exit 1; }
+
+    mkdir -p "$LIBRESSL_CACHE"
+    tarball="$LIBRESSL_CACHE/libressl-${LIBRESSL_VERSION}.tar.gz"
+    if [ ! -f "$tarball" ]; then
+        echo "==> Downloading LibreSSL $LIBRESSL_VERSION from $LIBRESSL_TARBALL_URL"
+        curl -fsSL "$LIBRESSL_TARBALL_URL" -o "$tarball"
+    fi
+
+    actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+    if [ "$actual_sha" != "$LIBRESSL_TARBALL_SHA256" ]; then
+        echo "ERR: LibreSSL tarball SHA256 mismatch"
+        echo "     expected: $LIBRESSL_TARBALL_SHA256"
+        echo "     actual:   $actual_sha"
+        exit 1
+    fi
+
+    echo "==> Building LibreSSL $LIBRESSL_VERSION"
+    extract_dir="$LIBRESSL_CACHE/libressl-${LIBRESSL_VERSION}"
+    rm -rf "$extract_dir"
+    tar -xzf "$tarball" -C "$LIBRESSL_CACHE"
     (
-        cd "$LIBRESSL_SRC"
-        if [ ! -f ./configure ]; then
-            ./autogen.sh
-        fi
-        ./configure --prefix="$LIBRESSL_PREFIX" --disable-shared --enable-static
+        cd "$extract_dir"
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_INSTALL_PREFIX="$LIBRESSL_PREFIX" \
+            -DLIBRESSL_APPS=OFF -DLIBRESSL_TESTS=OFF -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
         make -j"$JOBS"
         make install
     )
@@ -103,12 +129,38 @@ fi
 
 # ── Step 2: Swap SQLCipher into Fossil source tree ──────────────
 echo "==> Patching Fossil source"
-# --with-see=1 sets SQLITE3_ORIGIN=1, which makes Fossil's build look for
-# src/sqlite3-see.c (not src/sqlite3.c). Drop the SQLCipher amalgamation there.
-FOSSIL_SQLITE_C="$FOSSIL_SRC/src/sqlite3-see.c"
-FOSSIL_SQLITE_H="$FOSSIL_SRC/src/sqlite3.h"
-cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SQLITE_C"
-cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SQLITE_H"
+# --with-see=1 sets SQLITE3_ORIGIN=1; Fossil's main.mk resolves that to
+# extsrc/sqlite3-see.c (the auto.def comment says "src/" but the real path
+# per main.mk is $(SRCDIR_extsrc)/sqlite3-see.c). Drop the SQLCipher
+# amalgamation there.
+cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SRC/extsrc/sqlite3-see.c"
+cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SRC/extsrc/sqlite3.h"
+# Fossil's SEE convention also expects extsrc/shell-see.c. We must use
+# SQLCipher's own shell.c (which matches SQLCipher's bundled SQLite version),
+# not Fossil's stock shell.c — Fossil ships a newer SQLite amalgamation
+# whose shell.c references APIs (SQLITE_DBCONFIG_FP_DIGITS, sqlite3_str_free,
+# etc.) that don't exist in SQLCipher 4.x's older base.
+cp "$SQLCIPHER_DIR/shell.c" "$FOSSIL_SRC/extsrc/shell-see.c"
+
+# Extend SEE_FLAGS.1 in main.mk with the SQLCipher-required compile flags.
+# Fossil's main.mk hard-codes SQLITE_THREADSAFE=0 in SQLITE_OPTIONS; SQLCipher
+# requires 1 or 2. SEE_FLAGS.1 is appended AFTER SQLITE_OPTIONS on the compile
+# line, so the last -D wins. SQLCipher also requires SQLITE_TEMP_STORE=2 and
+# the EXTRA_INIT/SHUTDOWN hooks.
+python3 - "$FOSSIL_SRC/src/main.mk" <<'PY'
+import re, sys
+p = sys.argv[1]
+src = open(p).read()
+old = 'SEE_FLAGS.1 = -DSQLITE_HAS_CODEC -DSQLITE_SHELL_DBKEY_PROC=fossil_key'
+new = ('SEE_FLAGS.1 = -DSQLITE_HAS_CODEC -DSQLITE_SHELL_DBKEY_PROC=fossil_key '
+       '-DSQLITE_THREADSAFE=1 -DSQLITE_TEMP_STORE=2 '
+       '-DSQLITE_EXTRA_INIT=sqlcipher_extra_init '
+       '-DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown')
+if old not in src:
+    print("ERR: SEE_FLAGS.1 line not found verbatim in main.mk; check FOSSIL_REF", file=sys.stderr)
+    sys.exit(1)
+open(p, 'w').write(src.replace(old, new, 1))
+PY
 
 # patches/fossil-db-key.patch wires the mode-aware key source into Fossil's
 # existing SEE scaffolding (db_maybe_obtain_encryption_key in src/db.c):
@@ -121,6 +173,21 @@ if [ -f "$SCRIPT_DIR/patches/fossil-db-key.patch" ]; then
 else
     echo "  WARN: patches/fossil-db-key.patch absent — built binary will use Fossil's stock SEE prompt-for-passphrase behavior, not the mode-aware ppv flow"
 fi
+
+# Compatibility shims for two Fossil-uses-newer-SQLite-API calls in xsystem.c
+# (which implements the `fossil sqlite> ls` shell convenience):
+#   - sqlite3_str_free: SQLCipher 4.x doesn't expose this public API.
+#     Rewrite to the equivalent sqlite3_free(sqlite3_str_finish(...)) idiom.
+#   - sqlite3_format_query_result: a Fossil-side QRF helper defined in
+#     Fossil's stock extsrc/shell.c (which we replaced with SQLCipher's
+#     shell.c, removing the symbol). Stub the one call site to a no-op
+#     return code; xsystem_ls_render still prepares/finalizes the
+#     statement but skips the pretty-print rendering.
+sed -i.bak \
+    -e 's|sqlite3_str_free(pOut);|sqlite3_free(sqlite3_str_finish(pOut));|' \
+    -e 's|sqlite3_format_query_result(pStmt, &spec, 0);|(void)spec; /* QRF stubbed: see build/build-fossil.sh */|' \
+    "$FOSSIL_SRC/src/xsystem.c"
+rm -f "$FOSSIL_SRC/src/xsystem.c.bak"
 
 # ── Step 3: Configure Fossil ────────────────────────────────────
 echo "==> Configuring Fossil"
