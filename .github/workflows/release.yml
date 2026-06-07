@@ -40,11 +40,6 @@ jobs:
             container: ""
             deps: |
               brew install cmake tcl-tk autoconf automake pkg-config gnupg
-          - label: macos-x86_64
-            os: macos-13
-            container: ""
-            deps: |
-              brew install cmake tcl-tk autoconf automake pkg-config gnupg
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || null }}
     steps:
@@ -55,6 +50,12 @@ jobs:
 
       - name: Install dependencies
         run: ${{ matrix.deps }}
+
+      - name: Mark workspace as safe for git
+        # Inside a container, the workspace was populated by actions/checkout
+        # running as a different user; without this, git refuses to operate
+        # on it with "detected dubious ownership in repository".
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
