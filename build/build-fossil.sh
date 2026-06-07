@@ -135,12 +135,10 @@ echo "==> Patching Fossil source"
 # amalgamation there.
 cp "$SQLCIPHER_DIR/sqlite3.c" "$FOSSIL_SRC/extsrc/sqlite3-see.c"
 cp "$SQLCIPHER_DIR/sqlite3.h" "$FOSSIL_SRC/extsrc/sqlite3.h"
-# Fossil's SEE convention also expects extsrc/shell-see.c. We must use
-# SQLCipher's own shell.c (which matches SQLCipher's bundled SQLite version),
-# not Fossil's stock shell.c — Fossil ships a newer SQLite amalgamation
-# whose shell.c references APIs (SQLITE_DBCONFIG_FP_DIGITS, sqlite3_str_free,
-# etc.) that don't exist in SQLCipher 4.x's older base.
-cp "$SQLCIPHER_DIR/shell.c" "$FOSSIL_SRC/extsrc/shell-see.c"
+# Fossil's SEE convention also expects extsrc/shell-see.c. Stock shell.c
+# works since SQLCipher's bundled SQLite (3.53.1 via vendor/sqlcipher-libressl
+# at v4.16.0 baseline) has every symbol Fossil's shell.c references.
+cp "$FOSSIL_SRC/extsrc/shell.c" "$FOSSIL_SRC/extsrc/shell-see.c"
 
 # Extend SEE_FLAGS.1 in main.mk with the SQLCipher-required compile flags.
 # Fossil's main.mk hard-codes SQLITE_THREADSAFE=0 in SQLITE_OPTIONS; SQLCipher
@@ -174,20 +172,11 @@ else
     echo "  WARN: patches/fossil-db-key.patch absent — built binary will use Fossil's stock SEE prompt-for-passphrase behavior, not the mode-aware ppv flow"
 fi
 
-# Compatibility shims for two Fossil-uses-newer-SQLite-API calls in xsystem.c
-# (which implements the `fossil sqlite> ls` shell convenience):
-#   - sqlite3_str_free: SQLCipher 4.x doesn't expose this public API.
-#     Rewrite to the equivalent sqlite3_free(sqlite3_str_finish(...)) idiom.
-#   - sqlite3_format_query_result: a Fossil-side QRF helper defined in
-#     Fossil's stock extsrc/shell.c (which we replaced with SQLCipher's
-#     shell.c, removing the symbol). Stub the one call site to a no-op
-#     return code; xsystem_ls_render still prepares/finalizes the
-#     statement but skips the pretty-print rendering.
-sed -i.bak \
-    -e 's|sqlite3_str_free(pOut);|sqlite3_free(sqlite3_str_finish(pOut));|' \
-    -e 's|sqlite3_format_query_result(pStmt, &spec, 0);|(void)spec; /* QRF stubbed: see build/build-fossil.sh */|' \
-    "$FOSSIL_SRC/src/xsystem.c"
-rm -f "$FOSSIL_SRC/src/xsystem.c.bak"
+# (Earlier versions of this script carried xsystem.c sed shims for
+# sqlite3_str_free and sqlite3_format_query_result. Those symbols now
+# exist in vendor/sqlcipher-libressl's SQLite 3.53.1 baseline + Fossil's
+# stock shell.c, so the shims have been removed. See git history if you
+# need to resurrect them for an older SQLCipher.)
 
 # ── Step 3: Configure Fossil ────────────────────────────────────
 echo "==> Configuring Fossil"
