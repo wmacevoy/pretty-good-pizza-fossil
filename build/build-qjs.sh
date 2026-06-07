@@ -70,14 +70,20 @@ QJS_OBJ_FILES=(
 echo "==> Building QuickJS objects"
 make -C "$QUICKJS_SRC" -j"$JOBS" "${QJS_OBJ_FILES[@]}" >/dev/null
 
-# ── Step 3: compile src/qjs-crypto.c against quickjs + libcrypto ─
-echo "==> Compiling src/qjs-crypto.c"
-TMP_OBJ="$QUICKJS_SRC/.obj/qjs-crypto.o"
+# ── Step 3: compile src/qjs-crypto.c + src/ppv-keccak.c ─────────
+echo "==> Compiling src/qjs-crypto.c and src/ppv-keccak.c"
+QJS_CRYPTO_OBJ="$QUICKJS_SRC/.obj/qjs-crypto.o"
+KECCAK_OBJ="$QUICKJS_SRC/.obj/ppv-keccak.o"
 cc -O2 -Wall -Wno-unused-parameter \
    -I"$QUICKJS_SRC" \
    -I"$LIBRESSL_PREFIX/include" \
+   -I"$REPO_ROOT/src" \
    -c "$REPO_ROOT/src/qjs-crypto.c" \
-   -o "$TMP_OBJ"
+   -o "$QJS_CRYPTO_OBJ"
+cc -O2 -Wall \
+   -I"$REPO_ROOT/src" \
+   -c "$REPO_ROOT/src/ppv-keccak.c" \
+   -o "$KECCAK_OBJ"
 
 # ── Step 4: link qjs-ppv ────────────────────────────────────────
 echo "==> Linking qjs-ppv"
@@ -90,14 +96,15 @@ cc -O2 -o "$OUTPUT_DIR/qjs-ppv" \
     "$QUICKJS_SRC/.obj/libunicode.o" \
     "$QUICKJS_SRC/.obj/cutils.o" \
     "$QUICKJS_SRC/.obj/quickjs-libc.o" \
-    "$TMP_OBJ" \
+    "$QJS_CRYPTO_OBJ" \
+    "$KECCAK_OBJ" \
     "$LIBRESSL_PREFIX/lib/libcrypto.a" \
     -lm -lpthread
 
 # Restore vendor/quickjs to its pristine pinned state so the submodule's
 # working tree stays clean (the patch only needs to live during the build).
 (cd "$QUICKJS_SRC" && git checkout -- qjs.c)
-rm -f "$TMP_OBJ"
+rm -f "$QJS_CRYPTO_OBJ" "$KECCAK_OBJ"
 
 # ── Step 5: smoke test ──────────────────────────────────────────
 echo "==> Smoke test"
@@ -116,15 +123,16 @@ if (h !== "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a") {
     console.log("FAIL sha3_256(''):", h);
     throw new Error("sha3_256 mismatch");
 }
-console.log("ok sha3_256");
+console.log("ok sha3_256 (LibreSSL EVP)");
 
-// SHAKE128 of any input must return the requested number of bytes.
-const xof = shake128("hello", 17);
-if (xof.byteLength !== 17) {
-    console.log("FAIL shake128 length:", xof.byteLength);
-    throw new Error("shake128 length mismatch");
+// Known SHAKE128("") with 32-byte output (NIST KAT):
+// 7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26
+const x = hex(shake128("", 32));
+if (x !== "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26") {
+    console.log("FAIL shake128('', 32):", x);
+    throw new Error("shake128 mismatch");
 }
-console.log("ok shake128");
+console.log("ok shake128 (ppv-keccak)");
 
 // randomBytes returns the right length.
 const rb = randomBytes(32);

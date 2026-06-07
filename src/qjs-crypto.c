@@ -36,6 +36,8 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include "ppv-keccak.h"
+
 /*
  * Resolve a JS value to a byte range. Accepts:
  *   - strings (uses their UTF-8 representation)
@@ -170,22 +172,13 @@ static JSValue js_shake128(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     }
 
-    JSValue ret = JS_EXCEPTION;
-    EVP_MD_CTX *md = EVP_MD_CTX_new();
-    if (!md) {
-        JS_ThrowOutOfMemory(ctx);
-        goto out_shake;
-    }
-    if (!EVP_DigestInit_ex(md, EVP_shake128(), NULL) ||
-        !EVP_DigestUpdate(md, in, in_len) ||
-        !EVP_DigestFinalXOF(md, out, (size_t)nbytes)) {
-        JS_ThrowInternalError(ctx, "shake128: libcrypto XOF failed");
-        goto out_shake;
-    }
-    ret = JS_NewArrayBufferCopy(ctx, out, (size_t)nbytes);
+    /* LibreSSL 4.2.1's libcrypto doesn't expose SHAKE / XOF at all (no
+     * EVP_shake128, no EVP_DigestFinalXOF, no NID), so this path uses our
+     * own Keccak-f[1600] + SHAKE128 sponge in src/ppv-keccak.c. SHA-3-256
+     * above stays on EVP_sha3_256() since LibreSSL does ship that. */
+    ppv_shake128(in, in_len, out, (size_t)nbytes);
+    JSValue ret = JS_NewArrayBufferCopy(ctx, out, (size_t)nbytes);
 
-out_shake:
-    if (md) EVP_MD_CTX_free(md);
     js_free(ctx, out);
     if (str_to_free) JS_FreeCString(ctx, str_to_free);
     return ret;
