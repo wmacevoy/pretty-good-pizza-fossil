@@ -29,6 +29,7 @@ The two `./build/build-*.sh` scripts need these to be on PATH:
 - `tclsh` / `tcl-tk` (used by SQLCipher's `make sqlite3.c` amalgamation step — **build-only**, never needed at runtime)
 - `autoconf`, `automake`, `pkg-config` (for SQLCipher's `configure`)
 - `patch` (for applying our two small patches to Fossil and QuickJS during the build)
+- `python3` (one short inline script in `build-fossil.sh` edits Fossil's `main.mk` to add the SQLCipher flags — build-only)
 
 **macOS (Homebrew):**
 
@@ -41,7 +42,7 @@ xcode-select --install   # if you haven't already; provides cc and make
 
 ```
 sudo apt install build-essential cmake tcl tcl-dev \
-                 autoconf automake pkg-config patch gnupg
+                 autoconf automake pkg-config patch gnupg python3
 ```
 
 ## Build
