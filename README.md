@@ -36,7 +36,7 @@ Each election lives in a Fossil repository: the genesis commit is a signed elect
 
 ## Runtime dependencies
 
-- `fossil-ppv` — built by `build/build-fossil.sh`. Fossil 2.28 + SQLCipher + LibreSSL + the mode-aware key patch. Mode-1 elections can also be verified with a stock `fossil` binary; mode-2 (encrypted-at-rest) needs this build.
+- `fossil-ppv` — built by `build/build-fossil.sh`. Fossil 2.28 + SQLCipher + LibreSSL + the mode-aware key patch. Required for mode-group elections (encrypted-at-rest clone, gpg-wrapped master key); mode-public elections can also use stock `fossil`.
 - `qjs-ppv` — built by `build/build-qjs.sh`. QuickJS with the `ppv-crypto` native module (SHA3-256 via LibreSSL EVP, SHAKE128 via vendored Keccak, RAND_bytes via LibreSSL) linked in. Runs `bin/ppv`.
 - `gpg` — only system tool needed. Identity, ballot clearsigning, and mode-2 master-key wrap/unwrap.
 
