@@ -68,11 +68,23 @@ Remaining polish (deferred):
 - Mode-2 (group, SQLCipher-encrypted) version of the scenario test, exercising the full custom Fossil binary's PRAGMA-key flow. The unit-level proof that mode-2 works was the build-time smoke test (`.efossil` files have opaque random headers); a multi-voter scenario would be the next confirmation.
 - HTTP/HTTPS sync between distinct Fossil servers (instead of `.fossil` file copy as the federation substrate). Fossil's sync protocol is upstream's concern; the scenario test uses file copy to keep the test self-contained.
 
+## Milestone 4: Eliminate the openssl runtime dep — DONE
+
+`build/build-qjs.sh` produces `qjs-ppv`, a custom QuickJS binary with a `ppv-crypto` native module linked against the LibreSSL libcrypto that `build-fossil.sh` already builds. `lib/sha3.js` now does `import { sha3_256, shake128 } from "ppv-crypto"` instead of shelling out to `openssl`. SHA3-256 and `RAND_bytes` come from LibreSSL EVP/RAND; SHAKE128 is implemented in `src/ppv-keccak.c` because LibreSSL has no SHAKE primitive at any level (empirically confirmed, byte-verified against OpenSSL on rate-boundary cases). `bin/ppv` and `test/run-tests.js` shebangs switched to `#!/usr/bin/env qjs-ppv`.
+
+Result: the runtime dependency footprint is just `fossil-ppv` + `qjs-ppv` + `gpg`. No `openssl` install, no stock `qjs`, no Tcl, no Python.
+
+## Milestone 5: CI matrix + first tagged release — DONE
+
+`.github/workflows/build-test.yml` builds + tests both binaries on every push across `linux-glibc-x86_64`, `linux-glibc-arm64`, `macos-arm64`. `.github/workflows/release.yml` does the same for `v*` tags and produces draft GitHub Releases with `ppv-<tag>-<platform>.tar.gz` artifacts + a `git archive` source tarball + `SHA256SUMS` (operator signs locally with PGP before publishing). First tag: **v0.1.0**.
+
+Skipped for v0.1.0: `macos-x86_64` (GitHub-hosted Intel macOS runners no longer schedule reliably) and `alpine-musl` (deferred).
+
 ## Deferred
 
 - **ppv homeserver** (federated Pi Zero 2 W per user, browser PWA, WebSocket sync, restic-based RAID-1-across-peers backup). Sketch in `docs/future-homeserver.md`. Operational polish on top of the voting protocol; not blocking v1.
 - **Phase 3 / Mode 3 (individual)**: per-voter SQLCipher keys, no key sharing. For when peers do not mutually trust. Out of v1 scope.
-- **CI matrix mirroring sqlcipher-libressl's 5 platforms**: debian-glibc-x64, debian-glibc-arm64, alpine-musl-x64, macos-arm64, macos-x64. Adds reproducible builds and release artifacts. Worth doing after milestone 3 passes locally.
+- **Restore `macos-x86_64` and add `alpine-musl-x64` to the CI matrix.** Intel Mac GitHub-hosted runners stopped allocating during the v0.1.0 build push (job sat queued indefinitely); needs an investigation pass before re-adding. Alpine/musl is the natural next coverage step but the CMake-based LibreSSL build needs a few musl-specific tweaks.
 - **Equivocation detection at tally time**: voter committing two contradictory ballots. Default in threat-model is "reject voter entirely and surface for convener review" — needs to be specified concretely in `docs/` before tally code enforces it.
 - **TH1 hooks for Fossil web UI**: rendering ballots, manifests, tally results in browser via Fossil's built-in TH1 templating. Useful but not required for the CLI flow.
 - **Threat model coverage for live-machine compromise**: outside SQLCipher's scope; would need OS-level mitigations (filesystem permissions, sandboxing). Document as known limitation, do not chase.

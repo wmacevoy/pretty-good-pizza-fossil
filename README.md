@@ -4,7 +4,7 @@ Reference implementation of the [Pizza Party Voting mechanism](../pizza-party-vo
 
 ## Status
 
-Milestones 1–3 done. Custom Fossil binary builds end-to-end with SQLCipher + LibreSSL via the vendored build pipeline. Tally is implemented for all three allocation modes with frozen cross-implementation regression fixtures. `init`, `vote`, `tally`, and `verify` subcommands are wired up. A federated scenario test exercises three independent voters producing byte-identical results.
+**v0.1.0 — first tagged release.** Milestones 1–5 done. Two custom binaries (`fossil-ppv` with SQLCipher + LibreSSL; `qjs-ppv` with the `ppv-crypto` native module replacing the openssl shell-out) build and test green across `linux-glibc-x86_64`, `linux-glibc-arm64`, and `macos-arm64`. Tally is implemented for all three allocation modes with frozen cross-implementation regression fixtures. `init`, `vote`, `tally`, and `verify` are wired up. The federated scenario test exercises three independent voters producing byte-identical results.
 
 See `CLAUDE.md` for the architectural decisions and `docs/roadmap.md` for the milestone-by-milestone state.
 
@@ -14,7 +14,7 @@ Each election lives in a Fossil repository: the genesis commit is a signed elect
 
 ## Get started
 
-1. [`docs/install.md`](docs/install.md) — install the runtime deps (`qjs`, `openssl`, `gpg`) and optionally build the custom `fossil-ppv` binary for mode-2 (encrypted) repos.
+1. [`docs/install.md`](docs/install.md) — build the two custom binaries (`fossil-ppv` and `qjs-ppv`); install `gpg`. Nothing else on PATH at runtime.
 2. [`docs/walkthrough.md`](docs/walkthrough.md) — Alice, Bob, and Carol use ppv to agree on decorations for a surprise party. End-to-end worked example with concrete commands.
 
 ## Quick reference
@@ -34,14 +34,13 @@ Each election lives in a Fossil repository: the genesis commit is a signed elect
 | Unit tests | [`test/run-tests.js`](test/run-tests.js) |
 | Federated scenario test | [`test/scenario-test.sh`](test/scenario-test.sh) |
 
-## Dependencies (target)
+## Runtime dependencies
 
-- Fossil (stock for mode 1; custom build with SQLCipher for mode 2 — see `build/`).
-- `qjs` (QuickJS standalone interpreter; runs `bin/ppv`).
-- `openssl` (system install; SHA3-256 and SHAKE128 via shell-out).
-- `gpg` (system install; used by Fossil's clearsign and by mode-2 master-key decryption).
+- `fossil-ppv` — built by `build/build-fossil.sh`. Fossil 2.28 + SQLCipher + LibreSSL + the mode-aware key patch. Mode-1 elections can also be verified with a stock `fossil` binary; mode-2 (encrypted-at-rest) needs this build.
+- `qjs-ppv` — built by `build/build-qjs.sh`. QuickJS with the `ppv-crypto` native module (SHA3-256 via LibreSSL EVP, SHAKE128 via vendored Keccak, RAND_bytes via LibreSSL) linked in. Runs `bin/ppv`.
+- `gpg` — only system tool needed. Identity, ballot clearsigning, and mode-2 master-key wrap/unwrap.
 
-The CLI is NOT linked into Fossil; it runs in standalone `qjs` alongside the binary. A mode-1 (public) election can be verified with stock Fossil + `qjs` + `openssl`; only mode-2 (group, encrypted-at-rest) requires the custom Fossil build. No Python, no Node, no Rust toolchain in the voter's verification path.
+No `openssl`, no `qjs`, no Tcl, no Python, no Node, no Rust toolchain at runtime. The CLI is NOT linked into Fossil; it runs in `qjs-ppv` alongside the binary.
 
 ## License
 

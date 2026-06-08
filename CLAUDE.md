@@ -17,21 +17,18 @@ These were made deliberately in design conversation. Do not relitigate without r
 - **Identity = PGP keypair = Fossil user (one thing, not two).** Use `fossil setting clearsign on` for per-commit PGP signing. **Do not** implement a separate ballot-signing layer in the CLI. The voter's PGP fingerprint is the canonical identity in both the Fossil user record and the manifest's voter roster.
 - **Public-ballot only (phase 1).** Targeting grants and board votes where transparency is wanted. Secret-ballot elections require a different layer (blind signatures, anonymous tokens) and are explicitly out of scope.
 - **Wire format: JSON.** `JSON.parse` reads it; Fossil's web UI displays it; any language can independently verify a ballot file.
-- **CLI runtime: QuickJS.** JavaScript via the standalone `qjs` interpreter. JSON is native, BigInt is native, the audit surface is small (Bellard-tier code, ~70k lines C). Shell-outs to system `openssl` (SHA3-256, SHAKE128) and `gpg` (PGP decrypt) keep the dependency tree minimal: `qjs` + `openssl` + `gpg` + Fossil.
+- **CLI runtime: QuickJS with a tiny native crypto module.** JavaScript via QuickJS (`qjs-ppv`, our custom build). JSON is native, BigInt is native, the audit surface is small (Bellard-tier code, ~70k lines C). The `ppv-crypto` C module (`src/qjs-crypto.c` + `src/ppv-keccak.c`) links LibreSSL `libcrypto` for SHA3-256 and `RAND_bytes`, plus a vendored Keccak primitive for SHAKE128 (LibreSSL has no SHAKE), and is registered into QuickJS via a 19-line patch in `build/patches/qjs-register-ppv-crypto.patch`. `gpg` stays a system tool (identity, clearsign, mode-2 master-key wrap). Runtime dep tree: `fossil-ppv` + `qjs-ppv` + `gpg`.
 
 ## Phase plan
 
-1. **Phase 1 (current).** Stock Fossil + standalone `qjs` + system `openssl`/`gpg`. Schemas, CLI subcommands, deterministic tally, federation/partition tests. No custom Fossil build.
-2. **Phase 2.** Custom Fossil binary, built by `build/build-fossil.sh`, with:
+1. **Phase 1 — done.** Stock Fossil + standalone `qjs` + system `openssl`/`gpg`. Schemas, CLI subcommands, deterministic tally, federation/partition tests. Worked end-to-end.
+2. **Phase 2 — done.** Custom Fossil binary (`fossil-ppv`), built by `build/build-fossil.sh`, with:
    - SQLCipher swapped in for the bundled SQLite, via the sibling `../sqlcipher-libressl` project.
    - LibreSSL providing both `libcrypto` (for SQLCipher) and `libssl` (for TLS sync).
    - The mode-aware `PRAGMA key` patch wired into Fossil's existing SEE scaffolding.
+3. **Phase 3 — done.** Custom QuickJS binary (`qjs-ppv`), built by `build/build-qjs.sh`. Folds the LibreSSL libcrypto already produced for `fossil-ppv` into QuickJS as the `ppv-crypto` native module, eliminating the runtime `openssl` dependency. SHA3-256 and `RAND_bytes` come from LibreSSL EVP/RAND; SHAKE128 is implemented in `src/ppv-keccak.c` because LibreSSL has no SHAKE primitive at any level.
 
-The CLI does not get linked into the custom Fossil binary. It remains a separate `qjs` script, which means: anyone with stock Fossil + `qjs` + `openssl` can verify a mode-1 (public) election; only mode-2 (group, encrypted-at-rest) needs the custom Fossil binary at all. This is a stronger verifier story than embedding the CLI would give.
-
-Phase 2 collapses what was originally planned as a separate "custom Fossil" phase and a later "SQLCipher swap-in" phase. The heavy lift — LibreSSL ↔ SQLCipher integration — is solved by `sqlcipher-libressl`, so adding SQLCipher to the Fossil build is a few extra compile flags rather than a separate phase. See `build/README.md` for the rationale and the open TODOs.
-
-Phase 1 must work against an unmodified `fossil` binary so the algorithm and the federation model can be verified before betting on the custom-binary distribution story.
+The CLI is not linked into `fossil-ppv`. It remains a JS module loaded by `qjs-ppv`, which means: a mode-1 (public) election can be verified by anyone with the two custom binaries; only mode-2 (group, encrypted-at-rest) actually relies on the `fossil-ppv` SQLCipher path. This is a stronger verifier story than embedding the CLI would give.
 
 **Threat model for at-rest encryption** is in `docs/threat-model.md` (Pinned). The SQLCipher `PRAGMA key` source is the PGP-wrapped master key in mode 2; that doc is the source of truth for the build patch.
 
@@ -44,11 +41,14 @@ Phase 1 must work against an unmodified `fossil` binary so the algorithm and the
   - `deterministic-sampling.md` — exact seed-to-draw procedure for stochastic allocation modes (SHAKE128 stream, integer weights via product-of-prices).
   - `threat-model.md` — three trust modes, at-rest encryption design, build patch plumbing.
   - `roadmap.md` — ordered checklist of milestones and what blocks each.
-- `bin/ppv` — CLI entry point with subcommand dispatch (`init`, `vote`, `tally`, `verify`). QuickJS module; `#!/usr/bin/env qjs` shebang.
+- `bin/ppv` — CLI entry point with subcommand dispatch (`init`, `vote`, `tally`, `verify`). QuickJS module; `#!/usr/bin/env qjs-ppv` shebang.
+- `src/` — C sources for the custom QuickJS binary:
+  - `qjs-crypto.c` — `ppv-crypto` native module: `sha3_256`, `shake128`, `randomBytes`.
+  - `ppv-keccak.{h,c}` — public-domain Keccak-f[1600] + SHAKE128 sponge (LibreSSL has no SHAKE).
 - `lib/` — JS modules:
   - `canonical-json.js` — JCS encoder + restricted-subset parser.
-  - `sha3.js` — SHA3-256 and SHAKE128 wrappers (shell out to system `openssl`).
-  - `shell.js` — common shell-out helper used by `sha3.js` and the future `gpg` paths.
+  - `sha3.js` — thin SHA3-256 / SHAKE128 wrappers around `import { ... } from "ppv-crypto"`.
+  - `shell.js` — common shell-out helper used for `gpg` and the `fossil`/`fossil-ppv` subprocess.
   - `manifest.js` — load, validate, canonical hash.
   - `ballot.js` — load, validate (per-ballot rules only; equivocation is a tally-time check).
   - `tally.js` — the three allocation rules + threshold filter + seeded sampling.
