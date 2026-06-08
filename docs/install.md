@@ -28,6 +28,7 @@ The two `./build/build-*.sh` scripts need these to be on PATH:
 - `cmake` (used to build LibreSSL from the vendored release tarball)
 - `autoconf`, `automake`, `pkg-config` (for SQLCipher's `configure`)
 - `patch` (for applying our two small patches to Fossil and QuickJS during the build)
+- `zlib` headers (Fossil's configure checks for `zlib.h`; macOS gets this via Xcode, Debian via `zlib1g-dev`)
 
 No Tcl, no Python: SQLCipher's `autosetup` builds and uses its bundled `jimsh` for code generation, and the one inline `main.mk` edit in `build-fossil.sh` uses `awk`.
 
@@ -42,7 +43,7 @@ xcode-select --install   # if you haven't already; provides cc and make
 
 ```
 sudo apt install build-essential cmake \
-                 autoconf automake pkg-config patch gnupg
+                 autoconf automake pkg-config patch gnupg zlib1g-dev
 ```
 
 ## Build
